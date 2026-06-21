@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import itertools
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -55,18 +54,20 @@ def dump_yaml(data: Mapping[str, Any]) -> str:
 
 
 def _validate_top_level(data: Mapping[str, Any]) -> None:
-    allowed = {"metadata", "trtllm"}
+    allowed = {"metadata", "vars", "trtllm"}
     actual = set(data)
     unknown = actual - allowed
     if unknown:
         raise ProtocolError(f"root: unknown top-level sections: {sorted(unknown)}")
-    missing = allowed - actual
+    missing = {"metadata", "trtllm"} - actual
     if missing:
         raise ProtocolError(f"root: missing top-level sections: {sorted(missing)}")
     if not isinstance(data["metadata"], dict):
         raise ProtocolError("metadata: expected a mapping")
     if not isinstance(data["trtllm"], dict):
         raise ProtocolError("trtllm: expected a mapping")
+    if "vars" in data and not isinstance(data["vars"], dict):
+        raise ProtocolError("vars: expected a mapping")
 
 
 def _collect_sweeps(data: Mapping[str, Any]) -> list[SweepField]:
@@ -89,6 +90,8 @@ def _collect_sweeps(data: Mapping[str, Any]) -> list[SweepField]:
                 walk(item, (*path, str(index)))
 
     walk(data["metadata"], ("metadata",))
+    if "vars" in data:
+        walk(data["vars"], ("vars",))
     walk(data["trtllm"], ("trtllm",))
     return fields
 
@@ -112,25 +115,34 @@ def _resolve_case(
 
     context = {
         "metadata": case_data["metadata"],
+        "vars": case_data.get("vars", {}),
         "trtllm": case_data["trtllm"],
     }
     rendered = render_value(case_data, context, "")
     metadata = rendered["metadata"]
+    variables = rendered.get("vars", {})
     trtllm = rendered["trtllm"]
-    if not isinstance(metadata, dict) or not isinstance(trtllm, dict):
-        raise ProtocolError("resolved case: metadata and trtllm must be mappings")
+    if (
+        not isinstance(metadata, dict)
+        or not isinstance(variables, dict)
+        or not isinstance(trtllm, dict)
+    ):
+        raise ProtocolError(
+            "resolved case: metadata, vars, and trtllm must be mappings"
+        )
 
     _apply_defaults(trtllm)
     _validate_trtllm(trtllm)
     case_id = _case_id(metadata, assignment)
     prepare_dataset = _resolve_dataset(trtllm)
-    write_config = _resolve_config(trtllm, case_id)
+    write_config = _resolve_config(trtllm)
     benchmark = _benchmark_command(trtllm)
     _assert_no_unresolved(rendered)
 
     return {
         "case_id": case_id,
         "metadata": metadata,
+        "vars": variables,
         "trtllm": trtllm,
         "commands": {
             "prepare_dataset": prepare_dataset,
@@ -197,7 +209,7 @@ def _resolve_dataset(trtllm: dict[str, Any]) -> dict[str, Any] | None:
     return {"if_missing": True, "output": output, "argv": argv}
 
 
-def _resolve_config(trtllm: dict[str, Any], case_id: str) -> dict[str, Any] | None:
+def _resolve_config(trtllm: dict[str, Any]) -> dict[str, Any] | None:
     config = trtllm.get("config")
     if config is None:
         trtllm["config"] = None
@@ -208,14 +220,12 @@ def _resolve_config(trtllm: dict[str, Any], case_id: str) -> dict[str, Any] | No
         raise ProtocolError(
             "trtllm.config: expected path string, null, or managed object"
         )
-    root = config.get("root")
     content = config.get("content")
-    if not isinstance(root, str) or not isinstance(content, dict):
+    if not isinstance(content, dict):
         raise ProtocolError(
-            "trtllm.config: managed config requires root and mapping content"
+            "trtllm.config: managed config requires mapping content"
         )
-    digest = hashlib.sha256(dump_yaml(content).encode("utf-8")).hexdigest()[:8]
-    path = str(Path(root) / f"{case_id}__config-{digest}.yaml")
+    path = "config.yaml"
     artifact = {"path": path, "content": content}
     trtllm["config"] = artifact
     return artifact

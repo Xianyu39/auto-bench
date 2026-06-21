@@ -28,7 +28,6 @@ TRTLLM_MANIFEST: dict[str, ParamSpec] = {
     "model_path": ParamSpec("command", "model_path"),
     "isl": ParamSpec("command", "isl"),
     "osl": ParamSpec("command", "osl"),
-    "batch_size": ParamSpec("command", "batch_size"),
     "kv_cache_dtype": ParamSpec("command", "kv_cache_dtype"),
     "max_batch_size": ParamSpec("command", "max_batch_size"),
     "max_num_tokens": ParamSpec("command", "max_num_tokens"),

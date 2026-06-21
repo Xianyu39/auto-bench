@@ -24,6 +24,7 @@ def test_render_single_case_cmd_and_config(tmp_path: Path) -> None:
 
 def test_render_multi_case_directories_and_run_all(tmp_path: Path) -> None:
     payload = _resolved_payload()
+    payload["cases"][0]["metadata"]["gap"] = 15
     payload["cases"].append(
         {
             **payload["cases"][0],
@@ -37,7 +38,25 @@ def test_render_multi_case_directories_and_run_all(tmp_path: Path) -> None:
     assert (tmp_path / "case_one" / "cmd.sh").exists()
     assert (tmp_path / "case_two" / "cmd.sh").exists()
     assert (tmp_path / "run_all.sh").exists()
-    assert "case_one/cmd.sh" in (tmp_path / "run_all.sh").read_text()
+    run_all = (tmp_path / "run_all.sh").read_text()
+    assert "case_one/cmd.sh" in run_all
+    assert "sleep 15" in run_all
+
+
+def test_render_gpu_frequency_lock(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["metadata"]["gpu_frequency"] = {
+        "min_mhz": 1410,
+        "max_mhz": 1410,
+        "gpu_ids": [0],
+    }
+
+    render_resolved(payload, tmp_path)
+
+    cmd_text = (tmp_path / "cmd.sh").read_text()
+    assert "nvidia-smi \\" in cmd_text
+    assert "  -i 0 \\" in cmd_text
+    assert "  -lgc 1410,1410" in cmd_text
 
 
 def _resolved_payload() -> dict:

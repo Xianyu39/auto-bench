@@ -29,21 +29,31 @@ must generate it before running the benchmark command.
 
 ## Top-Level Structure
 
-An autobench YAML file has exactly two top-level sections:
+An autobench YAML file has two required top-level sections and one optional
+variable section:
 
 ```yaml
 metadata:
   name: llama2_7b_decode
   description: Decode benchmark on H100.
   tags: [decode, h100]
+  gap: 30
+  gpu_frequency:
+    min_mhz: 1410
+    max_mhz: 1410
+    gpu_ids: [0]
+
+vars:
+  batch_size:
+    sweep: [1, 2, 4, 8]
 
 trtllm:
   model: meta-llama/Llama-2-7b-hf
   command: throughput
   isl: 1024
   osl: 128
-  batch_size:
-    sweep: [1, 2, 4, 8]
+  max_batch_size: "${vars.batch_size}"
+  max_num_tokens: "${vars.batch_size * trtllm.osl}"
   dataset:
     root: /data/autobench/datasets
     generator: token-norm-dist
@@ -53,7 +63,6 @@ trtllm:
     input_stdev: 0
     output_stdev: 0
   config:
-    root: /data/autobench/configs
     content:
       cuda_graph_config:
         enable_padding: true
@@ -72,9 +81,47 @@ Recommended fields:
 - `name`: stable experiment name.
 - `description`: human-readable description.
 - `tags`: list of labels for searching and grouping experiments.
+- `gap`: seconds to wait between rendered case scripts in `run_all.sh`.
+- `gpu_frequency`: optional GPU graphics clock lock rendered into each
+  `cmd.sh` before the benchmark command.
 
 Additional metadata fields are allowed. They may be referenced by expressions
 with `metadata.<path>`.
+
+`metadata.gap` is a number. When multiple cases are rendered, `run_all.sh`
+sleeps for this duration after each case except the last one. This gives
+drivers, processes, and GPU state time to settle between experiments.
+
+`metadata.gpu_frequency` may be a number or a mapping. A number locks all GPUs
+to that fixed graphics clock in MHz. A mapping supports:
+
+- `enabled`: optional boolean, defaults to `true`.
+- `mhz`: shorthand fixed clock. Used when `min_mhz` is not set.
+- `min_mhz`: minimum graphics clock in MHz.
+- `max_mhz`: maximum graphics clock in MHz. Defaults to `min_mhz`.
+- `gpu_ids`: optional list of GPU ids. When omitted, `nvidia-smi -lgc` applies
+  to the default GPU selection.
+
+Example rendered lock command:
+
+```bash
+nvidia-smi -i 0 -lgc 1410,1410
+```
+
+These metadata fields affect rendered shell scripts only. They are not
+TensorRT-LLM benchmark parameters.
+
+### `vars`
+
+`vars` describes experiment variables that can be swept and referenced by
+expressions, but are not TensorRT-LLM benchmark parameters and are never mapped
+directly to command-line arguments.
+
+Use `vars` for values such as conceptual batch size, derived dimensions, naming
+tokens, or any other experiment control value that TensorRT-LLM does not accept
+as a direct parameter.
+
+Fields under `vars` may be referenced with `vars.<path>`.
 
 ### `trtllm`
 
@@ -97,7 +144,7 @@ config artifact with a path and YAML content.
 
 ## Parameter Value Types
 
-Fields in `metadata` and `trtllm` may use the following value types.
+Fields in `metadata`, `vars`, and `trtllm` may use the following value types.
 
 ### Scalar
 
@@ -115,12 +162,12 @@ trtllm:
 A sweep field expands the experiment into multiple cases.
 
 ```yaml
-trtllm:
+vars:
   batch_size:
     sweep: [1, 2, 4, 8]
 ```
 
-After expansion, `trtllm.batch_size` is a scalar in each resolved case.
+After expansion, `vars.batch_size` is a scalar in each resolved case.
 
 A mapping is treated as a sweep object only when it has exactly one key,
 `sweep`. The value of `sweep` must be a non-empty list.
@@ -131,7 +178,7 @@ An expression is a string whose entire value is a single `${...}` block.
 
 ```yaml
 trtllm:
-  max_num_tokens: "${trtllm.batch_size * trtllm.osl}"
+  max_num_tokens: "${vars.batch_size * trtllm.osl}"
 ```
 
 When the whole YAML value is an expression, the resolved value keeps the
@@ -223,35 +270,26 @@ direct benchmark CLI flags.
 ```yaml
 trtllm:
   config:
-    root: /data/autobench/configs
     content:
       cuda_graph_config:
         enable_padding: true
         batch_sizes:
           - 1
-          - "${trtllm.batch_size}"
+          - "${vars.batch_size}"
       print_iter_log: true
 ```
 
 Required managed config fields:
 
-- `root`: directory where autobench stores generated config files.
 - `content`: YAML mapping to write into the generated config file.
 
 The resolver must evaluate expressions and sweep values inside `content`. The
 resolved content must be valid YAML data and must not contain `sweep` objects or
 unresolved `${...}` expressions.
 
-The resolver must generate a readable, deterministic config filename from the
-resolved config content and the case identity. The recommended filename format
-is:
-
-```text
-<case_id>__config-<short_hash(content)>.yaml
-```
-
-The hash is included so that two cases with the same visible sweep values but
-different config content cannot collide.
+Managed config files are case-local artifacts. The resolver records their path
+as `config.yaml`, and the render step writes that file next to the case's
+`cmd.sh`. This keeps configs small, local, and easy to inspect.
 
 If `trtllm.config` is omitted or `null`, no config artifact is generated and
 the benchmark command does not include `--config`.
@@ -261,13 +299,15 @@ config file. The benchmark command includes `--config <path>`, but autobench
 does not generate the file.
 
 If `trtllm.config` is a managed config object, the resolved case must include
-the generated config path, the generated config content, and a file-write plan.
+the config path `config.yaml`, the generated config content, and a file-write
+plan.
 
 ## Path References And Expressions
 
 Expressions may reference values with dotted paths:
 
 - `metadata.<path>`
+- `vars.<path>`
 - `trtllm.<path>`
 
 Examples:
@@ -276,14 +316,16 @@ Examples:
 metadata:
   model_family: llama2
 
+vars:
+  batch_size:
+    sweep: [1, 2, 4]
+
 trtllm:
   isl: 1024
   osl: 128
-  batch_size:
-    sweep: [1, 2, 4]
   dataset: "/data/${metadata.model_family}/i${trtllm.isl}_o${trtllm.osl}.txt"
-  max_batch_size: "${trtllm.batch_size}"
-  max_num_tokens: "${trtllm.batch_size * trtllm.osl}"
+  max_batch_size: "${vars.batch_size}"
+  max_num_tokens: "${vars.batch_size * trtllm.osl}"
 ```
 
 During expression evaluation, all sweep fields in the current case have already
@@ -298,33 +340,35 @@ v0.1 supports a safe expression subset:
 - Boolean logic: `and`, `or`, `not`
 - Parentheses
 - String and numeric literals
-- Path references under `metadata` and `trtllm`
+- Path references under `metadata`, `vars`, and `trtllm`
 - Functions: `min`, `max`, `int`, `str`, `ceil`, `floor`, `slug`
 
 The expression evaluator must not execute arbitrary Python or shell code. File
-access, imports, attribute access outside `metadata` and `trtllm`, and calls to
-unlisted functions are forbidden.
+access, imports, attribute access outside `metadata`, `vars`, and `trtllm`, and
+calls to unlisted functions are forbidden.
 
 `slug(value)` converts a value into a path-safe string. It is intended for
-dataset filenames, config filenames, and case identifiers.
+dataset filenames and case identifiers.
 
 ## Sweep Expansion Rules
 
 All `sweep` fields are expanded by Cartesian product.
 
 ```yaml
+vars:
+  batch_size:
+    sweep: [1, 2, 4]
+
 trtllm:
   isl:
     sweep: [128, 512]
-  batch_size:
-    sweep: [1, 2, 4]
 ```
 
 This produces `2 * 3 = 6` cases.
 
 Expansion order must be deterministic:
 
-1. Traverse `metadata` and `trtllm` in YAML order.
+1. Traverse `metadata`, `vars`, and `trtllm` in YAML order.
 2. Collect sweep fields in that order.
 3. Expand Cartesian products in collected order.
 
@@ -338,7 +382,7 @@ format is:
 Example:
 
 ```text
-llama2_7b_decode__trtllm.isl=128__trtllm.batch_size=4
+llama2_7b_decode__vars.batch_size=4__trtllm.isl=128
 ```
 
 If `metadata.name` is missing, the resolver must use a deterministic fallback
@@ -349,9 +393,9 @@ such as `experiment`.
 A resolver must process the input in this order:
 
 1. Parse YAML.
-2. Validate that the only top-level keys are `metadata` and `trtllm`.
+2. Validate that the only top-level keys are `metadata`, `vars`, and `trtllm`.
 3. Load the fixed TensorRT-LLM benchmark parameter manifest.
-4. Collect all sweep fields from `metadata` and `trtllm`.
+4. Collect all sweep fields from `metadata`, `vars`, and `trtllm`.
 5. Expand the Cartesian product of sweep values.
 6. For each expanded case, replace sweep objects with the current scalar values.
 7. Evaluate expressions and string interpolations.
@@ -376,20 +420,21 @@ configuration and executable commands.
 ```yaml
 version: autobench.resolved/v0.1
 cases:
-  - case_id: llama2_7b_decode__trtllm.batch_size=1
+  - case_id: llama2_7b_decode__vars.batch_size=1
     metadata:
       name: llama2_7b_decode
       tags: [decode, h100]
+    vars:
+      batch_size: 1
     trtllm:
       model: meta-llama/Llama-2-7b-hf
       isl: 1024
       osl: 128
-      batch_size: 1
       max_batch_size: 1
       max_num_tokens: 128
       dataset: /data/llama2/i1024_o128.txt
       config:
-        path: /data/autobench/configs/llama2_7b_decode__trtllm.batch_size=1__config-a1b2c3d4.yaml
+        path: config.yaml
         content:
           cuda_graph_config:
             enable_padding: true
@@ -399,7 +444,7 @@ cases:
     commands:
       prepare_dataset: null
       write_config:
-        path: /data/autobench/configs/llama2_7b_decode__trtllm.batch_size=1__config-a1b2c3d4.yaml
+        path: config.yaml
         content:
           cuda_graph_config:
             enable_padding: true
@@ -413,7 +458,7 @@ cases:
           - --dataset
           - /data/llama2/i1024_o128.txt
           - --config
-          - /data/autobench/configs/llama2_7b_decode__trtllm.batch_size=1__config-a1b2c3d4.yaml
+          - config.yaml
           - --max_batch_size
           - "1"
           - --max_num_tokens
@@ -453,7 +498,7 @@ dataset, and most benchmark controls are still expressed as CLI options.
 Therefore, autobench v0.1 treats its YAML as an orchestration protocol and emits
 the pair TensorRT-LLM expects in practice:
 
-- `trtllm-bench ... --config <generated-config.yaml>` command argv.
+- `trtllm-bench ... --config config.yaml` command argv.
 - The generated `config.yaml` content for options that belong in TensorRT-LLM's
   YAML config surface.
 
@@ -498,7 +543,7 @@ Example:
 ```yaml
 commands:
   write_config:
-    path: /data/autobench/configs/llama2_7b_decode__config-a1b2c3d4.yaml
+    path: config.yaml
     content:
       cuda_graph_config:
         enable_padding: true
@@ -510,7 +555,7 @@ commands:
 
 The runner must write this content before executing the benchmark command.
 Config writing must be deterministic: the same resolved case must produce the
-same config path and byte-equivalent YAML content.
+same `config.yaml` content.
 
 ### Prepare Dataset Command
 
@@ -576,8 +621,7 @@ Validation rules:
 - Managed dataset filenames must be deterministic for the resolved generator
   fields.
 - Managed config content must be a YAML mapping.
-- Managed config filenames must be deterministic for the resolved config
-  content.
+- Managed config objects resolve to the case-local path `config.yaml`.
 
 `metadata` is not validated against the TensorRT-LLM manifest.
 
@@ -616,6 +660,15 @@ metadata:
   description: Decode throughput sweep on H100.
   tags: [decode, h100]
   model_family: llama2
+  gap: 30
+  gpu_frequency:
+    min_mhz: 1410
+    max_mhz: 1410
+    gpu_ids: [0]
+
+vars:
+  batch_size:
+    sweep: [1, 4]
 
 trtllm:
   model: meta-llama/Llama-2-7b-hf
@@ -626,9 +679,6 @@ trtllm:
     sweep: [128, 512]
 
   osl: 128
-
-  batch_size:
-    sweep: [1, 4]
 
   kv_cache_dtype:
     sweep: [fp16, fp8]
@@ -643,7 +693,6 @@ trtllm:
     output_stdev: 0
 
   config:
-    root: /mnt/configs/autobench
     content:
       cuda_graph_config:
         enable_padding: true
@@ -652,8 +701,8 @@ trtllm:
         free_gpu_memory_fraction: 0.9
       print_iter_log: true
 
-  max_batch_size: "${trtllm.batch_size}"
-  max_num_tokens: "${trtllm.batch_size * trtllm.osl}"
+  max_batch_size: "${vars.batch_size}"
+  max_num_tokens: "${vars.batch_size * trtllm.osl}"
 
   warmup: 5
   iterations: 30
@@ -666,23 +715,29 @@ One resolved case:
 ```yaml
 version: autobench.resolved/v0.1
 cases:
-  - case_id: llama2_7b_decode__trtllm.isl=128__trtllm.batch_size=4__trtllm.kv_cache_dtype=fp8
+  - case_id: llama2_7b_decode__vars.batch_size=4__trtllm.isl=128__trtllm.kv_cache_dtype=fp8
     metadata:
       name: llama2_7b_decode
       description: Decode throughput sweep on H100.
       tags: [decode, h100]
       model_family: llama2
+      gap: 30
+      gpu_frequency:
+        min_mhz: 1410
+        max_mhz: 1410
+        gpu_ids: [0]
+    vars:
+      batch_size: 4
     trtllm:
       model: meta-llama/Llama-2-7b-hf
       command: throughput
       model_path: /mnt/engines/llama2-7b
       isl: 128
       osl: 128
-      batch_size: 4
       kv_cache_dtype: fp8
       dataset: /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
       config:
-        path: /mnt/configs/autobench/llama2_7b_decode__trtllm.isl=128__trtllm.batch_size=4__trtllm.kv_cache_dtype=fp8__config-a1b2c3d4.yaml
+        path: config.yaml
         content:
           cuda_graph_config:
             enable_padding: true
@@ -719,7 +774,7 @@ cases:
           - --output-stdev
           - "0"
       write_config:
-        path: /mnt/configs/autobench/llama2_7b_decode__trtllm.isl=128__trtllm.batch_size=4__trtllm.kv_cache_dtype=fp8__config-a1b2c3d4.yaml
+        path: config.yaml
         content:
           cuda_graph_config:
             enable_padding: true
@@ -736,7 +791,7 @@ cases:
           - --dataset
           - /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
           - --config
-          - /mnt/configs/autobench/llama2_7b_decode__trtllm.isl=128__trtllm.batch_size=4__trtllm.kv_cache_dtype=fp8__config-a1b2c3d4.yaml
+          - config.yaml
           - --model_path
           - /mnt/engines/llama2-7b
           - --max_batch_size
@@ -751,6 +806,9 @@ Future parser tests should cover:
 
 - A single static configuration resolves into one complete case.
 - Two sweep fields expand into a Cartesian product.
+- Sweep fields under `vars` can be referenced by `trtllm` expressions.
+- `vars` fields are preserved in resolved output but not rendered as CLI
+  options.
 - Expressions can read current sweep values and preserve result types.
 - String interpolation can generate dataset paths.
 - Managed datasets resolve to deterministic dataset paths.
@@ -770,7 +828,6 @@ Future parser tests should cover:
 
 The following features are intentionally out of scope for v0.1:
 
-- A separate `vars` section.
 - A separate `computed` section.
 - A separate `constraints` section.
 - Complex include/exclude filtering.

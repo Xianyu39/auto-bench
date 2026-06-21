@@ -34,7 +34,7 @@ def render_resolved(resolved: dict[str, Any], output_dir: str | Path) -> list[Pa
         case_dirs.append(case_dir)
 
     if multi_case:
-        _write_run_all(root, case_dirs)
+        _write_run_all(root, cases, case_dirs)
     return case_dirs
 
 
@@ -53,16 +53,20 @@ def _write_case_artifacts(case: dict[str, Any], case_dir: Path) -> None:
     cmd_path.chmod(cmd_path.stat().st_mode | 0o111)
 
 
-def _write_run_all(root: Path, case_dirs: list[Path]) -> None:
+def _write_run_all(root: Path, cases: list[Any], case_dirs: list[Path]) -> None:
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
         "",
     ]
-    for case_dir in case_dirs:
+    for index, case_dir in enumerate(case_dirs):
         relative = case_dir.relative_to(root)
         lines.append(f"bash \"$SCRIPT_DIR/{relative}/cmd.sh\"")
+        if index < len(case_dirs) - 1:
+            gap = _metadata_gap(cases[index])
+            if gap > 0:
+                lines.append(f"sleep {_sh(str(gap))}")
     lines.append("")
 
     run_all = root / "run_all.sh"
@@ -82,6 +86,7 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
         "",
     ]
+    lines.extend(_gpu_frequency_lines(case.get("metadata", {})))
 
     prepare = commands.get("prepare_dataset")
     if isinstance(prepare, dict):
@@ -99,6 +104,59 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
     lines.append(_format_command(benchmark_argv))
     lines.append("")
     return "\n".join(lines)
+
+
+def _metadata_gap(case: Any) -> int | float:
+    if not isinstance(case, dict):
+        return 0
+    metadata = case.get("metadata", {})
+    if not isinstance(metadata, dict):
+        return 0
+    gap = metadata.get("gap", 0)
+    if isinstance(gap, int | float) and gap > 0:
+        return gap
+    return 0
+
+
+def _gpu_frequency_lines(metadata: Any) -> list[str]:
+    if not isinstance(metadata, dict):
+        return []
+    config = metadata.get("gpu_frequency")
+    if config in (None, False):
+        return []
+
+    min_mhz: int | float | None
+    max_mhz: int | float | None
+    gpu_ids: list[Any] | None
+
+    if isinstance(config, int | float):
+        min_mhz = config
+        max_mhz = config
+        gpu_ids = None
+    elif isinstance(config, dict):
+        if config.get("enabled", True) is False:
+            return []
+        min_mhz = config.get("min_mhz", config.get("mhz"))
+        max_mhz = config.get("max_mhz", min_mhz)
+        ids = config.get("gpu_ids")
+        gpu_ids = ids if isinstance(ids, list) else None
+    else:
+        return []
+
+    if min_mhz is None or max_mhz is None:
+        return []
+
+    commands: list[str] = []
+    clocks = f"{min_mhz},{max_mhz}"
+    if gpu_ids:
+        for gpu_id in gpu_ids:
+            commands.append(
+                _format_command(["nvidia-smi", "-i", gpu_id, "-lgc", clocks])
+            )
+    else:
+        commands.append(_format_command(["nvidia-smi", "-lgc", clocks]))
+    commands.append("")
+    return commands
 
 
 def _replace_config_path(argv: list[Any], config_path: str) -> list[str]:
@@ -132,7 +190,7 @@ def _group_args(args: list[str]) -> list[str]:
     while index < len(args):
         current = args[index]
         next_index = index + 1
-        if current.startswith("--") and next_index < len(args):
+        if current.startswith("-") and next_index < len(args):
             next_arg = args[next_index]
             if not next_arg.startswith("--"):
                 groups.append(f"{current} {next_arg}")

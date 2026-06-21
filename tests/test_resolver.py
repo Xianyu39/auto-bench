@@ -10,13 +10,15 @@ def test_resolve_sweeps_dataset_config_and_commands() -> None:
     result = resolve(
         {
             "metadata": {"name": "decode_sweep"},
+            "vars": {
+                "batch_size": {"sweep": [1, 4]},
+            },
             "trtllm": {
                 "model": "meta-llama/Llama-2-7b-hf",
                 "command": "throughput",
                 "model_path": "/engines/llama",
                 "isl": {"sweep": [128, 256]},
                 "osl": 64,
-                "batch_size": {"sweep": [1, 4]},
                 "dataset": {
                     "root": "/datasets",
                     "generator": "token-norm-dist",
@@ -27,16 +29,15 @@ def test_resolve_sweeps_dataset_config_and_commands() -> None:
                     "output_stdev": 0,
                 },
                 "config": {
-                    "root": "/configs",
                     "content": {
                         "cuda_graph_config": {
                             "enable_padding": True,
-                            "batch_sizes": [1, "${trtllm.batch_size}"],
+                            "batch_sizes": [1, "${vars.batch_size}"],
                         }
                     },
                 },
-                "max_batch_size": "${trtllm.batch_size}",
-                "max_num_tokens": "${trtllm.batch_size * trtllm.osl}",
+                "max_batch_size": "${vars.batch_size}",
+                "max_num_tokens": "${vars.batch_size * trtllm.osl}",
             },
         }
     )
@@ -44,15 +45,18 @@ def test_resolve_sweeps_dataset_config_and_commands() -> None:
     cases = result["cases"]
     assert len(cases) == 4
     case = cases[1]
-    assert case["case_id"] == "decode_sweep__trtllm.isl=128__trtllm.batch_size=4"
-    assert case["trtllm"]["dataset"].endswith("__in=128_0__out=64_0__n=100.txt")
-    assert case["trtllm"]["max_num_tokens"] == 256
+    assert case["case_id"] == "decode_sweep__vars.batch_size=1__trtllm.isl=256"
+    assert case["trtllm"]["dataset"].endswith("__in=256_0__out=64_0__n=100.txt")
+    assert case["vars"]["batch_size"] == 1
+    assert case["trtllm"]["max_num_tokens"] == 64
     assert case["commands"]["prepare_dataset"]["if_missing"] is True
     assert case["commands"]["write_config"]["content"]["cuda_graph_config"][
         "batch_sizes"
-    ] == [1, 4]
+    ] == [1, 1]
+    assert case["commands"]["write_config"]["path"] == "config.yaml"
     assert "--config" in case["commands"]["benchmark"]["argv"]
     assert "--dataset" in case["commands"]["benchmark"]["argv"]
+    assert "--batch_size" not in case["commands"]["benchmark"]["argv"]
 
 
 def test_user_managed_dataset_and_config_path() -> None:
@@ -63,7 +67,7 @@ def test_user_managed_dataset_and_config_path() -> None:
                 "model": "llama",
                 "dataset": "/datasets/static.txt",
                 "config": "/configs/static.yaml",
-                "batch_size": 1,
+                "max_batch_size": 1,
             },
         }
     )
