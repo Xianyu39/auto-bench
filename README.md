@@ -7,6 +7,36 @@ experiments and resolves them into command-plus-config execution plans. The
 current machine is not expected to run TensorRT-LLM itself; local development
 focuses on protocol parsing, validation, command rendering, and tests.
 
+## Installation
+
+Install the CLI directly from GitHub with pip:
+
+```bash
+pip install "auto-bench @ git+https://github.com/<owner>/auto-bench.git@main"
+```
+
+Install it as a uv-managed tool:
+
+```bash
+uv tool install "git+https://github.com/<owner>/auto-bench.git@main"
+```
+
+Run it without a persistent install:
+
+```bash
+uvx --from "git+https://github.com/<owner>/auto-bench.git@main" auto-bench --help
+```
+
+After installing, the CLI is available as:
+
+```bash
+auto-bench --help
+```
+
+Replace `<owner>` with the GitHub account or organization that hosts this
+repository. For reproducible installs, replace `@main` with a release tag such
+as `@v0.1.0` after tagging a release.
+
 ## Development
 
 Install dependencies with uv:
@@ -47,3 +77,9 @@ config, render also creates a local `config.yaml` next to `cmd.sh`.
 ## Documentation
 
 - [YAML protocol v0.1](docs/yaml_protocol_v0.1.md)
+
+## Release Notes
+
+This project is installable from GitHub as a Python package. Before making the
+repository public, choose and add an open-source license. After adding a
+license, also add the matching `license` metadata to `pyproject.toml`.
