@@ -620,7 +620,7 @@ metadata:
 trtllm:
   model: meta-llama/Llama-2-7b-hf
   command: throughput
-  engine_dir: /mnt/engines/llama2-7b
+  model_path: /mnt/engines/llama2-7b
 
   isl:
     sweep: [128, 512]
@@ -675,7 +675,7 @@ cases:
     trtllm:
       model: meta-llama/Llama-2-7b-hf
       command: throughput
-      engine_dir: /mnt/engines/llama2-7b
+      model_path: /mnt/engines/llama2-7b
       isl: 128
       osl: 128
       batch_size: 4
@@ -737,7 +737,7 @@ cases:
           - /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
           - --config
           - /mnt/configs/autobench/llama2_7b_decode__trtllm.isl=128__trtllm.batch_size=4__trtllm.kv_cache_dtype=fp8__config-a1b2c3d4.yaml
-          - --engine_dir
+          - --model_path
           - /mnt/engines/llama2-7b
           - --max_batch_size
           - "4"

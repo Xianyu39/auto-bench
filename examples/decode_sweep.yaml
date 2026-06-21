@@ -1,0 +1,34 @@
+metadata:
+  name: decode_sweep
+  description: Minimal decode sweep example.
+  tags: [decode]
+
+trtllm:
+  model: meta-llama/Llama-2-7b-hf
+  command: throughput
+  model_path: /mnt/engines/llama2-7b
+
+  isl:
+    sweep: [128, 256]
+  osl: 64
+  batch_size:
+    sweep: [1, 4]
+
+  dataset:
+    root: /mnt/datasets/autobench
+    generator: token-norm-dist
+    num_requests: 100
+    input_mean: "${trtllm.isl}"
+    output_mean: "${trtllm.osl}"
+    input_stdev: 0
+    output_stdev: 0
+
+  config:
+    root: /mnt/configs/autobench
+    content:
+      cuda_graph_config:
+        enable_padding: true
+        batch_sizes: [1, "${trtllm.batch_size}"]
+
+  max_batch_size: "${trtllm.batch_size}"
+  max_num_tokens: "${trtllm.batch_size * trtllm.osl}"
