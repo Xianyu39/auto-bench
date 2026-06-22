@@ -22,26 +22,27 @@ def minimal_template() -> dict[str, Any]:
         },
         "trtllm": {
             "model": "meta-llama/Llama-2-7b-hf",
-            "command": "throughput",
             "model_path": "/mnt/engines/llama2-7b",
-            "isl": 128,
-            "osl": 64,
-            "max_batch_size": "${vars.batch_size}",
-            "max_num_tokens": "${vars.batch_size * trtllm.osl}",
-            "dataset": {
-                "root": "/mnt/datasets/autobench",
-                "generator": "token-norm-dist",
-                "num_requests": 100,
-                "input_mean": "${trtllm.isl}",
-                "output_mean": "${trtllm.osl}",
-                "input_stdev": 0,
-                "output_stdev": 0,
-            },
-            "config": {
-                "content": {
-                    "cuda_graph_config": {
-                        "enable_padding": True,
-                        "batch_sizes": [1, "${vars.batch_size}"],
+            "throughput": {
+                "isl": 128,
+                "osl": 64,
+                "max_batch_size": "${vars.batch_size}",
+                "max_num_tokens": "${vars.batch_size * trtllm.throughput.osl}",
+                "dataset": {
+                    "root": "/mnt/datasets/autobench",
+                    "generator": "token-norm-dist",
+                    "num_requests": 100,
+                    "input_mean": "${trtllm.throughput.isl}",
+                    "output_mean": "${trtllm.throughput.osl}",
+                    "input_stdev": 0,
+                    "output_stdev": 0,
+                },
+                "config": {
+                    "content": {
+                        "cuda_graph_config": {
+                            "enable_padding": True,
+                            "batch_sizes": [1, "${vars.batch_size}"],
+                        },
                     },
                 },
             },
@@ -63,8 +64,8 @@ def decode_template() -> dict[str, Any]:
             },
         }
     )
-    template["trtllm"]["isl"] = {"sweep": [128, 256]}
-    template["trtllm"]["osl"] = 64
+    template["trtllm"]["throughput"]["isl"] = {"sweep": [128, 256]}
+    template["trtllm"]["throughput"]["osl"] = 64
     return template
 
 
@@ -87,18 +88,18 @@ def prefill_template() -> dict[str, Any]:
         }
     )
     template["vars"]["batch_size"] = {"sweep": [1, 2, 4, 8, 16, 32]}
-    template["trtllm"].update(
+    template["trtllm"]["throughput"].update(
         {
             "isl": 1024,
             "osl": 1,
             "ep": 4,
             "dp": 4,
-            "max_num_tokens": "${vars.batch_size * trtllm.osl + 1}",
+            "max_num_tokens": "${vars.batch_size * trtllm.throughput.osl + 1}",
             "iteration_log": None,
         }
     )
-    template["trtllm"]["dataset"]["num_requests"] = 256
-    template["trtllm"]["config"]["content"]["enable_attention_dp"] = True
+    template["trtllm"]["throughput"]["dataset"]["num_requests"] = 256
+    template["trtllm"]["throughput"]["config"]["content"]["enable_attention_dp"] = True
     return template
 
 

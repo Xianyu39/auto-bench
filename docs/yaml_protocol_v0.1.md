@@ -52,26 +52,27 @@ vars:
 
 trtllm:
   model: meta-llama/Llama-2-7b-hf
-  command: throughput
-  isl: 1024
-  osl: 128
-  max_batch_size: "${vars.batch_size}"
-  max_num_tokens: "${vars.batch_size * trtllm.osl}"
-  dataset:
-    root: /data/autobench/datasets
-    generator: token-norm-dist
-    num_requests: 1000
-    input_mean: "${trtllm.isl}"
-    output_mean: "${trtllm.osl}"
-    input_stdev: 0
-    output_stdev: 0
-  config:
-    content:
-      cuda_graph_config:
-        enable_padding: true
-        batch_sizes: [1, 2, 4, 8]
-      kv_cache_config:
-        free_gpu_memory_fraction: 0.9
+  model_path: /mnt/engines/llama2-7b
+  throughput:
+    isl: 1024
+    osl: 128
+    max_batch_size: "${vars.batch_size}"
+    max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
+    dataset:
+      root: /data/autobench/datasets
+      generator: token-norm-dist
+      num_requests: 1000
+      input_mean: "${trtllm.throughput.isl}"
+      output_mean: "${trtllm.throughput.osl}"
+      input_stdev: 0
+      output_stdev: 0
+    config:
+      content:
+        cuda_graph_config:
+          enable_padding: true
+          batch_sizes: [1, 2, 4, 8]
+        kv_cache_config:
+          free_gpu_memory_fraction: 0.9
 ```
 
 ### `metadata`
@@ -141,18 +142,19 @@ Fields under `vars` may be referenced with `vars.<path>`.
 `trtllm` describes TensorRT-LLM benchmark parameters. It is the only section
 that maps to benchmark parameters and benchmark commands.
 
-Every key under `trtllm` must correspond to a known parameter in the fixed
-TensorRT-LLM benchmark manifest or a known autobench protocol field.
+Every key under the `trtllm` root must be either a known root-level
+TensorRT-LLM benchmark parameter or the selected subcommand name.
 
-`trtllm.command`, `trtllm.dataset`, and `trtllm.config` are special protocol
-fields.
-`trtllm.command` selects the TensorRT-LLM benchmark subcommand. In input YAML,
-`trtllm.dataset` may be either a dataset path or a managed dataset
-specification. In resolved output, `trtllm.dataset` must always be a dataset
-path.
+The `trtllm` root contains options that belong to `trtllm-bench` itself, such
+as `model` and `model_path`. Exactly one supported benchmark subcommand must
+also appear as a mapping key, for example `throughput`, `latency`, or `build`.
+Fields under that subcommand are rendered as subcommand options.
 
-`trtllm.config` describes the TensorRT-LLM YAML config artifact passed with
-`--config`. In resolved output, it must be either `null` or a materialized
+`dataset` and `config` are special protocol fields under the selected
+subcommand. In input YAML, `<command>.dataset` may be either a dataset path or a
+managed dataset specification. In resolved output, it must always be a dataset
+path. `<command>.config` describes the TensorRT-LLM YAML config artifact passed
+with `--config`; in resolved output, it must be either `null` or a materialized
 config artifact with a path and YAML content.
 
 ## Parameter Value Types
@@ -207,7 +209,8 @@ An expression is a string whose entire value is a single `${...}` block.
 
 ```yaml
 trtllm:
-  max_num_tokens: "${vars.batch_size * trtllm.osl}"
+  throughput:
+    max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
 ```
 
 When the whole YAML value is an expression, the resolved value keeps the
@@ -221,31 +224,33 @@ is not itself a single expression.
 
 ```yaml
 trtllm:
-  dataset: "/data/llama2/i${trtllm.isl}_o${trtllm.osl}.txt"
+  throughput:
+    dataset: "/data/llama2/i${trtllm.throughput.isl}_o${trtllm.throughput.osl}.txt"
 ```
 
 Interpolated values are always resolved to strings.
 
 ### Managed Dataset
 
-`trtllm.dataset` may describe a dataset that autobench manages. The resolver
-turns this object into a deterministic dataset path, and the runner generates
-the file on demand.
+`<command>.dataset` may describe a dataset that autobench manages. The
+resolver turns this object into a deterministic dataset path, and the runner
+generates the file on demand.
 
 ```yaml
 trtllm:
   model: meta-llama/Llama-2-7b-hf
-  isl:
-    sweep: [128, 512]
-  osl: 128
-  dataset:
-    root: /data/autobench/datasets
-    generator: token-norm-dist
-    num_requests: 1000
-    input_mean: "${trtllm.isl}"
-    output_mean: "${trtllm.osl}"
-    input_stdev: 0
-    output_stdev: 0
+  throughput:
+    isl:
+      sweep: [128, 512]
+    osl: 128
+    dataset:
+      root: /data/autobench/datasets
+      generator: token-norm-dist
+      num_requests: 1000
+      input_mean: "${trtllm.throughput.isl}"
+      output_mean: "${trtllm.throughput.osl}"
+      input_stdev: 0
+      output_stdev: 0
 ```
 
 Required managed dataset fields:
@@ -292,20 +297,21 @@ benchmark interval.
 
 ### Managed Config
 
-`trtllm.config` describes a per-case TensorRT-LLM `config.yaml` file. This is
-used for options that TensorRT-LLM expects through `--config` rather than as
+`<command>.config` describes a per-case TensorRT-LLM `config.yaml` file. This
+is used for options that TensorRT-LLM expects through `--config` rather than as
 direct benchmark CLI flags.
 
 ```yaml
 trtllm:
-  config:
-    content:
-      cuda_graph_config:
-        enable_padding: true
-        batch_sizes:
-          - 1
-          - "${vars.batch_size}"
-      print_iter_log: true
+  throughput:
+    config:
+      content:
+        cuda_graph_config:
+          enable_padding: true
+          batch_sizes:
+            - 1
+            - "${vars.batch_size}"
+        print_iter_log: true
 ```
 
 Required managed config fields:
@@ -320,14 +326,14 @@ Managed config files are case-local artifacts. The resolver records their path
 as `config.yaml`, and the render step writes that file next to the case's
 `cmd.sh`. This keeps configs small, local, and easy to inspect.
 
-If `trtllm.config` is omitted or `null`, no config artifact is generated and
+If `<command>.config` is omitted or `null`, no config artifact is generated and
 the benchmark command does not include `--config`.
 
-If `trtllm.config` is a string path, autobench treats it as a user-managed
+If `<command>.config` is a string path, autobench treats it as a user-managed
 config file. The benchmark command includes `--config <path>`, but autobench
 does not generate the file.
 
-If `trtllm.config` is a managed config object, the resolved case must include
+If `<command>.config` is a managed config object, the resolved case must include
 the config path `config.yaml`, the generated config content, and a file-write
 plan.
 
@@ -350,11 +356,12 @@ vars:
     sweep: [1, 2, 4]
 
 trtllm:
-  isl: 1024
-  osl: 128
-  dataset: "/data/${metadata.model_family}/i${trtllm.isl}_o${trtllm.osl}.txt"
-  max_batch_size: "${vars.batch_size}"
-  max_num_tokens: "${vars.batch_size * trtllm.osl}"
+  throughput:
+    isl: 1024
+    osl: 128
+    dataset: "/data/${metadata.model_family}/i${trtllm.throughput.isl}_o${trtllm.throughput.osl}.txt"
+    max_batch_size: "${vars.batch_size}"
+    max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
 ```
 
 During expression evaluation, all sweep fields in the current case have already
@@ -411,7 +418,7 @@ format is:
 Example:
 
 ```text
-llama2_7b_decode__vars.batch_size=4__trtllm.isl=128
+llama2_7b_decode__vars.batch_size=4__trtllm.throughput.isl=128
 ```
 
 If `metadata.name` is missing, the resolver must use a deterministic fallback
@@ -428,9 +435,9 @@ A resolver must process the input in this order:
 5. Expand the Cartesian product of sweep values.
 6. For each expanded case, replace sweep objects with the current scalar values.
 7. Evaluate expressions and string interpolations.
-8. Resolve managed `trtllm.dataset` objects into dataset paths and
+8. Resolve managed `<command>.dataset` objects into dataset paths and
    prepare-dataset commands.
-9. Resolve managed `trtllm.config` objects into config paths, config content,
+9. Resolve managed `<command>.config` objects into config paths, config content,
    and file-write plans.
 10. Apply manifest defaults for missing optional `trtllm` parameters.
 11. Validate required `trtllm` parameters.
@@ -494,17 +501,18 @@ cases:
           - "128"
 ```
 
-Each resolved `trtllm` object must contain all required TensorRT-LLM benchmark
-parameters plus the resolved autobench protocol fields. Parameters with
-manifest defaults must be materialized in the resolved output.
+Each resolved `trtllm` object must contain all required root-level TensorRT-LLM
+benchmark parameters, one subcommand mapping, and all required subcommand
+parameters. Parameters with manifest defaults must be materialized in the
+resolved output.
 
-If `trtllm.dataset` is managed, `commands.prepare_dataset` must contain an
-argv list. If `trtllm.dataset` is already a path, `commands.prepare_dataset`
+If `<command>.dataset` is managed, `commands.prepare_dataset` must contain an
+argv list. If `<command>.dataset` is already a path, `commands.prepare_dataset`
 must be `null`.
 
-If `trtllm.config` is managed, `commands.write_config` must contain the config
-path and content to write. If `trtllm.config` is omitted, `commands.write_config`
-must be `null`. If `trtllm.config` is a user-managed path,
+If `<command>.config` is managed, `commands.write_config` must contain the config
+path and content to write. If `<command>.config` is omitted, `commands.write_config`
+must be `null`. If `<command>.config` is a user-managed path,
 `commands.write_config` must be `null`.
 
 The benchmark command and optional config artifact are the canonical executable
@@ -533,13 +541,15 @@ the pair TensorRT-LLM expects in practice:
 
 ### Benchmark Command
 
-`trtllm.command` selects the benchmark subcommand. v0.1 supports:
+The selected benchmark subcommand is represented as a mapping key under
+`trtllm`. v0.1 supports:
 
 - `throughput`
 - `latency`
 - `build`
 
-If `trtllm.command` is missing, the resolver defaults to `throughput`.
+Exactly one subcommand mapping is required. `trtllm.command` is not supported
+in v0.1.
 
 The rendered benchmark command format is:
 
@@ -547,17 +557,15 @@ The rendered benchmark command format is:
 trtllm-bench [global options] <command> [command options]
 ```
 
-`trtllm.model` maps to the global `--model` option. `trtllm.dataset` maps to
-the command option `--dataset` for commands that accept datasets.
-`trtllm.config.path` or a user-managed `trtllm.config` path maps to `--config`.
+Root-level `trtllm` fields map to global options rendered before the
+subcommand. Fields under the selected subcommand map to options rendered after
+the subcommand. For example, `trtllm.model` maps to `--model`,
+`trtllm.model_path` maps to `--model_path`, and
+`trtllm.throughput.dataset` maps to `--dataset`.
 
-Option names are rendered from manifest metadata. The manifest must classify
-each parameter as one of:
-
-- `global`: rendered before the subcommand.
-- `command`: rendered after the subcommand.
-- `protocol`: consumed by autobench and not rendered directly.
-- `config`: written into the generated TensorRT-LLM config artifact.
+Option names are rendered from manifest metadata. Protocol fields such as
+`dataset` and `config` are consumed by autobench and rendered as the appropriate
+command options after they are resolved.
 
 Boolean options are rendered only when true, unless the TensorRT-LLM manifest
 defines an explicit value-taking boolean flag.
@@ -565,7 +573,7 @@ defines an explicit value-taking boolean flag.
 ### Config Artifact
 
 The generated config artifact is a YAML file whose content is exactly the
-resolved `trtllm.config.content` mapping.
+resolved `<command>.config.content` mapping.
 
 Example:
 
@@ -637,14 +645,15 @@ Validation rules:
 
 - Missing required `trtllm` parameters are errors.
 - Missing optional `trtllm` parameters with manifest defaults are filled.
-- Unknown `trtllm` parameters or protocol fields are errors.
+- Unknown `trtllm` root parameters, subcommand parameters, or protocol fields
+  are errors.
 - Values must match manifest types after expression evaluation.
-- Resolved `trtllm` keys must be either TensorRT-LLM manifest parameters or
-  known autobench protocol fields after defaults are applied.
-- Input `trtllm.dataset` may be a managed dataset object, but resolved
-  `trtllm.dataset` must be a string path.
-- Input `trtllm.config` may be absent, `null`, a user-managed path, or a
-  managed config object. Resolved `trtllm.config` must be `null` or an object
+- Resolved `trtllm` root keys must be either root-level TensorRT-LLM manifest
+  parameters or one supported subcommand name after defaults are applied.
+- Input `<command>.dataset` may be a managed dataset object, but resolved
+  `<command>.dataset` must be a string path.
+- Input `<command>.config` may be absent, `null`, a user-managed path, or a
+  managed config object. Resolved `<command>.config` must be `null` or an object
   with `path` and `content`.
 - Managed dataset generator arguments must be known for the selected generator.
 - Managed dataset filenames must be deterministic for the resolved generator
@@ -704,41 +713,40 @@ vars:
 
 trtllm:
   model: meta-llama/Llama-2-7b-hf
-  command: throughput
   model_path: /mnt/engines/llama2-7b
+  throughput:
+    isl:
+      sweep: [128, 512]
 
-  isl:
-    sweep: [128, 512]
+    osl: 128
 
-  osl: 128
+    kv_cache_dtype:
+      sweep: [fp16, fp8]
 
-  kv_cache_dtype:
-    sweep: [fp16, fp8]
+    dataset:
+      root: /mnt/datasets/autobench
+      generator: token-norm-dist
+      num_requests: 1000
+      input_mean: "${trtllm.throughput.isl}"
+      output_mean: "${trtllm.throughput.osl}"
+      input_stdev: 0
+      output_stdev: 0
 
-  dataset:
-    root: /mnt/datasets/autobench
-    generator: token-norm-dist
-    num_requests: 1000
-    input_mean: "${trtllm.isl}"
-    output_mean: "${trtllm.osl}"
-    input_stdev: 0
-    output_stdev: 0
+    config:
+      content:
+        cuda_graph_config:
+          enable_padding: true
+          batch_sizes: [1, 2, 4]
+        kv_cache_config:
+          free_gpu_memory_fraction: 0.9
+        print_iter_log: true
 
-  config:
-    content:
-      cuda_graph_config:
-        enable_padding: true
-        batch_sizes: [1, 2, 4]
-      kv_cache_config:
-        free_gpu_memory_fraction: 0.9
-      print_iter_log: true
+    max_batch_size: "${vars.batch_size}"
+    max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
 
-  max_batch_size: "${vars.batch_size}"
-  max_num_tokens: "${vars.batch_size * trtllm.osl}"
-
-  warmup: 5
-  iterations: 30
-  streaming: false
+    warmup: 5
+    iterations: 30
+    streaming: false
 ```
 
 This input produces `2 * 2 * 2 = 8` resolved cases before manifest defaulting.
@@ -747,7 +755,7 @@ One resolved case:
 ```yaml
 version: autobench.resolved/v0.1
 cases:
-  - case_id: llama2_7b_decode__vars.batch_size=4__trtllm.isl=128__trtllm.kv_cache_dtype=fp8
+  - case_id: llama2_7b_decode__vars.batch_size=4__trtllm.throughput.isl=128__trtllm.throughput.kv_cache_dtype=fp8
     metadata:
       name: llama2_7b_decode
       description: Decode throughput sweep on H100.
@@ -765,27 +773,27 @@ cases:
       batch_size: 4
     trtllm:
       model: meta-llama/Llama-2-7b-hf
-      command: throughput
       model_path: /mnt/engines/llama2-7b
-      isl: 128
-      osl: 128
-      kv_cache_dtype: fp8
-      dataset: /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
-      config:
-        path: config.yaml
-        content:
-          cuda_graph_config:
-            enable_padding: true
-            batch_sizes: [1, 2, 4]
-          kv_cache_config:
-            free_gpu_memory_fraction: 0.9
-          print_iter_log: true
-      max_batch_size: 4
-      max_num_tokens: 512
-      warmup: 5
-      iterations: 30
-      streaming: false
-      # Additional manifest parameters are filled here.
+      throughput:
+        isl: 128
+        osl: 128
+        kv_cache_dtype: fp8
+        dataset: /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
+        config:
+          path: config.yaml
+          content:
+            cuda_graph_config:
+              enable_padding: true
+              batch_sizes: [1, 2, 4]
+            kv_cache_config:
+              free_gpu_memory_fraction: 0.9
+            print_iter_log: true
+        max_batch_size: 4
+        max_num_tokens: 512
+        warmup: 5
+        iterations: 30
+        streaming: false
+        # Additional manifest parameters are filled here.
     commands:
       prepare_dataset:
         if_missing: true
@@ -822,13 +830,19 @@ cases:
           - trtllm-bench
           - --model
           - meta-llama/Llama-2-7b-hf
+          - --model_path
+          - /mnt/engines/llama2-7b
           - throughput
+          - --isl
+          - "128"
+          - --osl
+          - "128"
+          - --kv_cache_dtype
+          - fp8
           - --dataset
           - /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
           - --config
           - config.yaml
-          - --model_path
-          - /mnt/engines/llama2-7b
           - --max_batch_size
           - "4"
           - --max_num_tokens

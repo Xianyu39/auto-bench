@@ -15,17 +15,16 @@ class ParamSpec:
     value_taking_bool: bool = False
 
 
-PROTOCOL_FIELDS = {"command", "dataset", "config"}
+PROTOCOL_FIELDS = {"dataset", "config"}
 
 
 TRTLLM_MANIFEST: dict[str, ParamSpec] = {
     "model": ParamSpec("global", "model", required=True),
-    "command": ParamSpec("protocol", default="throughput"),
     "dataset": ParamSpec("protocol", required=True),
     "config": ParamSpec("protocol", default=None),
     # Common benchmark fields used by the protocol examples. The full fixed
     # TensorRT-LLM manifest can replace or extend this table.
-    "model_path": ParamSpec("command", "model_path"),
+    "model_path": ParamSpec("global", "model_path"),
     "ep": ParamSpec("command", "ep"),
     "dp": ParamSpec("command", "dp"),
     "isl": ParamSpec("command", "isl"),

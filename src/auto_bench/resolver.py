@@ -11,7 +11,11 @@ from ruamel.yaml import YAML
 
 from auto_bench.errors import ProtocolError
 from auto_bench.expressions import render_value, slug
-from auto_bench.manifest import COMMANDS, DATASET_GENERATORS, TRTLLM_MANIFEST
+from auto_bench.manifest import (
+    COMMANDS,
+    DATASET_GENERATORS,
+    TRTLLM_MANIFEST,
+)
 
 yaml = YAML()
 yaml.default_flow_style = False
@@ -153,42 +157,105 @@ def _resolve_case(
 
 
 def _apply_defaults(trtllm: dict[str, Any]) -> None:
+    command_options = _command_options(trtllm)
     for name, spec in TRTLLM_MANIFEST.items():
-        if name not in trtllm and spec.default is not None:
+        if (
+            spec.location == "global"
+            and name not in trtllm
+            and spec.default is not None
+        ):
             trtllm[name] = copy.deepcopy(spec.default)
+        if (
+            spec.location != "global"
+            and name not in command_options
+            and spec.default is not None
+        ):
+            command_options[name] = copy.deepcopy(spec.default)
 
 
 def _validate_trtllm(trtllm: Mapping[str, Any]) -> None:
-    unknown = set(trtllm) - set(TRTLLM_MANIFEST)
-    if unknown:
-        raise ProtocolError(f"trtllm: unknown parameters: {sorted(unknown)}")
+    command_name, command_options = _command_entry(trtllm)
+    global_names = {
+        name for name, spec in TRTLLM_MANIFEST.items() if spec.location == "global"
+    }
+    command_names = {
+        name for name, spec in TRTLLM_MANIFEST.items() if spec.location != "global"
+    }
+    unknown_globals = set(trtllm) - global_names - COMMANDS
+    if unknown_globals:
+        raise ProtocolError(
+            f"trtllm: unknown global parameters: {sorted(unknown_globals)}"
+        )
+    unknown_options = set(command_options) - command_names
+    if unknown_options:
+        raise ProtocolError(
+            "trtllm."
+            f"{command_name}: unknown command parameters: {sorted(unknown_options)}"
+        )
     for name, spec in TRTLLM_MANIFEST.items():
-        if spec.required and name not in trtllm:
+        if spec.required and spec.location == "global" and name not in trtllm:
             raise ProtocolError(f"trtllm.{name}: missing required parameter")
-    command = trtllm.get("command", "throughput")
-    if command not in COMMANDS:
-        raise ProtocolError(f"trtllm.command: unsupported command {command!r}")
+        if (
+            spec.required
+            and spec.location != "global"
+            and name not in command_options
+        ):
+            raise ProtocolError(
+                f"trtllm.{command_name}.{name}: missing required parameter"
+            )
+
+
+def _command_entry(trtllm: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
+    command_names = [name for name in trtllm if name in COMMANDS]
+    if not command_names:
+        raise ProtocolError(
+            "trtllm: missing benchmark command section; "
+            f"expected one of {sorted(COMMANDS)}"
+        )
+    if len(command_names) > 1:
+        raise ProtocolError(
+            "trtllm: exactly one benchmark command section is allowed, "
+            f"got {command_names}"
+        )
+    command_name = command_names[0]
+    command_options = trtllm[command_name]
+    if not isinstance(command_options, dict):
+        raise ProtocolError(f"trtllm.{command_name}: expected a mapping")
+    return command_name, command_options
+
+
+def _command_options(trtllm: Mapping[str, Any]) -> dict[str, Any]:
+    command_name, command_options = _command_entry(trtllm)
+    if not isinstance(command_options, dict):
+        raise ProtocolError(f"trtllm.{command_name}: expected a mapping")
+    return command_options
 
 
 def _resolve_dataset(trtllm: dict[str, Any]) -> dict[str, Any] | None:
-    dataset = trtllm.get("dataset")
+    command_name, command_options = _command_entry(trtllm)
+    dataset = command_options.get("dataset")
     if isinstance(dataset, str):
         return None
     if not isinstance(dataset, dict):
-        raise ProtocolError("trtllm.dataset: expected path string or managed object")
+        raise ProtocolError(
+            f"trtllm.{command_name}.dataset: expected path string or managed object"
+        )
     root = dataset.get("root")
     generator = dataset.get("generator")
     if not isinstance(root, str) or not isinstance(generator, str):
         raise ProtocolError(
-            "trtllm.dataset: managed dataset requires root and generator"
+            f"trtllm.{command_name}.dataset: "
+            "managed dataset requires root and generator"
         )
     generator_args = DATASET_GENERATORS.get(generator)
     if generator_args is None:
-        raise ProtocolError(f"trtllm.dataset.generator: unsupported {generator!r}")
+        raise ProtocolError(
+            f"trtllm.{command_name}.dataset.generator: unsupported {generator!r}"
+        )
     unknown = set(dataset) - {"root", "generator"} - set(generator_args)
     if unknown:
         raise ProtocolError(
-            f"trtllm.dataset: unknown generator args: {sorted(unknown)}"
+            f"trtllm.{command_name}.dataset: unknown generator args: {sorted(unknown)}"
         )
 
     model = slug(trtllm.get("model", "model"))
@@ -199,7 +266,7 @@ def _resolve_dataset(trtllm: dict[str, Any]) -> dict[str, Any] | None:
         f"__n={dataset.get('num_requests')}.txt"
     )
     output = str(Path(root) / filename)
-    trtllm["dataset"] = output
+    command_options["dataset"] = output
 
     argv = ["trtllm-bench", "--model", str(trtllm["model"]), "prepare-dataset"]
     argv.extend(["--output", output, generator])
@@ -210,51 +277,58 @@ def _resolve_dataset(trtllm: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _resolve_config(trtllm: dict[str, Any]) -> dict[str, Any] | None:
-    config = trtllm.get("config")
+    command_name, command_options = _command_entry(trtllm)
+    config = command_options.get("config")
     if config is None:
-        trtllm["config"] = None
+        command_options["config"] = None
         return None
     if isinstance(config, str):
         return None
     if not isinstance(config, dict):
         raise ProtocolError(
-            "trtllm.config: expected path string, null, or managed object"
+            f"trtllm.{command_name}.config: "
+            "expected path string, null, or managed object"
         )
     content = config.get("content")
     if not isinstance(content, dict):
         raise ProtocolError(
-            "trtllm.config: managed config requires mapping content"
+            f"trtllm.{command_name}.config: managed config requires mapping content"
         )
     path = "config.yaml"
     artifact = {"path": path, "content": content}
-    trtllm["config"] = artifact
+    command_options["config"] = artifact
     return artifact
 
 
 def _benchmark_command(trtllm: Mapping[str, Any]) -> dict[str, list[str]]:
-    command = str(trtllm.get("command", "throughput"))
+    command_name, command_options = _command_entry(trtllm)
     argv = ["trtllm-bench"]
-    for name, spec in TRTLLM_MANIFEST.items():
-        if spec.location != "global" or name not in trtllm:
+
+    for name, value in trtllm.items():
+        if name in COMMANDS:
             continue
+        spec = TRTLLM_MANIFEST[name]
         argv.extend(
-            _render_option(spec.cli_name or name, trtllm[name], spec.value_taking_bool)
+            _render_option(spec.cli_name or name, value, spec.value_taking_bool)
         )
-    argv.append(command)
-    for name, spec in TRTLLM_MANIFEST.items():
-        if spec.location != "command" or name not in trtllm:
+
+    argv.append(command_name)
+
+    for name, value in command_options.items():
+        if name == "dataset":
+            if isinstance(value, str):
+                argv.extend(["--dataset", value])
             continue
+        if name == "config":
+            if isinstance(value, str):
+                argv.extend(["--config", value])
+            elif isinstance(value, dict):
+                argv.extend(["--config", str(value["path"])])
+            continue
+        spec = TRTLLM_MANIFEST[name]
         argv.extend(
-            _render_option(spec.cli_name or name, trtllm[name], spec.value_taking_bool)
+            _render_option(spec.cli_name or name, value, spec.value_taking_bool)
         )
-    dataset = trtllm.get("dataset")
-    if isinstance(dataset, str):
-        argv.extend(["--dataset", dataset])
-    config = trtllm.get("config")
-    if isinstance(config, str):
-        argv.extend(["--config", config])
-    elif isinstance(config, dict):
-        argv.extend(["--config", str(config["path"])])
     return {"argv": argv}
 
 

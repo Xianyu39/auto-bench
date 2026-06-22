@@ -16,27 +16,27 @@ vars:
 
 trtllm:
   model: meta-llama/Llama-2-7b-hf
-  command: throughput
   model_path: /mnt/engines/llama2-7b
 
-  isl:
-    sweep: [128, 256]
-  osl: 64
+  throughput:
+    isl:
+      sweep: [128, 256]
+    osl: 64
 
-  dataset:
-    root: /mnt/datasets/autobench
-    generator: token-norm-dist
-    num_requests: 100
-    input_mean: "${trtllm.isl}"
-    output_mean: "${trtllm.osl}"
-    input_stdev: 0
-    output_stdev: 0
+    dataset:
+      root: /mnt/datasets/autobench
+      generator: token-norm-dist
+      num_requests: 100
+      input_mean: "${trtllm.throughput.isl}"
+      output_mean: "${trtllm.throughput.osl}"
+      input_stdev: 0
+      output_stdev: 0
 
-  config:
-    content:
-      cuda_graph_config:
-        enable_padding: true
-        batch_sizes: [1, "${vars.batch_size}"]
+    config:
+      content:
+        cuda_graph_config:
+          enable_padding: true
+          batch_sizes: [1, "${vars.batch_size}"]
 
-  max_batch_size: "${vars.batch_size}"
-  max_num_tokens: "${vars.batch_size * trtllm.osl}"
+    max_batch_size: "${vars.batch_size}"
+    max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
