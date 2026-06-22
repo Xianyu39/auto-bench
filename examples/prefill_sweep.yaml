@@ -4,11 +4,9 @@ metadata:
   tags: [prefill]
   gap: 30
   gpu_frequency:
-    min_mhz: 1410
-    max_mhz: 1410
-    gpu_ids: [0]
+    min_mhz: 1400
+    max_mhz: 1400
   env:
-    CUDA_VISIBLE_DEVICES: 0
     TRTLLM_LOG_LEVEL: INFO
 
 vars:
@@ -20,20 +18,21 @@ trtllm:
   model_path: /mnt/engines/llama2-7b
 
   throughput:
-    isl: 1024
-    osl: 1
     ep: 4
-    dp: 4
+    tp: 4
+    warmup: 0
+    backend: pytorch
     max_batch_size: "${vars.batch_size}"
-    max_num_tokens: "${vars.batch_size * trtllm.throughput.osl + 1}"
-    iteration_log: null
+    max_num_tokens: "${vars.batch_size * trtllm.throughput.dataset.input_mean + 1}"
+    num_requests: 256
+    iteration_log: "${runtime.run_dir}/iter.log"
 
     dataset:
       root: /mnt/datasets/autobench
       generator: token-norm-dist
       num_requests: 256
-      input_mean: "${trtllm.throughput.isl}"
-      output_mean: "${trtllm.throughput.osl}"
+      input_mean: 1024
+      output_mean: 1024
       input_stdev: 0
       output_stdev: 0
 

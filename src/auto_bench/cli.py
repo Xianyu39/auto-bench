@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from auto_bench import __version__
+from auto_bench.collector import collect_results, render_results
 from auto_bench.errors import AutobenchError
 from auto_bench.renderer import render_file
 from auto_bench.resolver import dump_yaml, resolve_file
@@ -48,6 +49,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory for rendered artifacts.",
     )
 
+    collect_parser = subparsers.add_parser(
+        "collect_results",
+        aliases=["collect-results"],
+        help="Collect benchmark metrics from rendered artifacts.",
+    )
+    collect_parser.add_argument(
+        "artifact_dir",
+        type=Path,
+        help="Rendered artifact directory containing resolved.yaml and run.log files.",
+    )
+    collect_parser.add_argument(
+        "--framework",
+        required=True,
+        choices=["trtllm-bench"],
+        help="Benchmark framework whose output should be parsed.",
+    )
+    collect_parser.add_argument(
+        "--format",
+        choices=["csv", "yaml"],
+        default="csv",
+        help="Output format for collected results.",
+    )
+    collect_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Write collected results to this path instead of stdout.",
+    )
+
     template_parser = subparsers.add_parser(
         "template",
         help="Generate a starter experiment YAML template.",
@@ -84,6 +114,15 @@ def main(argv: list[str] | None = None) -> int:
             case_dirs = render_file(args.input, args.output_dir)
             for case_dir in case_dirs:
                 sys.stdout.write(f"{case_dir}\n")
+            return 0
+        if args.command in {"collect_results", "collect-results"}:
+            rows = collect_results(args.artifact_dir, args.framework)
+            rendered = render_results(rows, args.format)
+            if args.output is None:
+                sys.stdout.write(rendered)
+            else:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(rendered, encoding="utf-8")
             return 0
         if args.command == "template":
             rendered = dump_yaml(get_template(args.kind))

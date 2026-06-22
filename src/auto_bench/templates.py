@@ -70,37 +70,60 @@ def decode_template() -> dict[str, Any]:
 
 
 def prefill_template() -> dict[str, Any]:
-    template = minimal_template()
-    template["metadata"].update(
-        {
+    return {
+        "metadata": {
             "name": "prefill_sweep",
-            "description": "Prefill throughput sweep example.",
+            "description": "Minimal prefill sweep example.",
             "tags": ["prefill"],
+            "gap": 30,
             "gpu_frequency": {
-                "min_mhz": 1410,
-                "max_mhz": 1410,
-                "gpu_ids": [0],
+                "min_mhz": 1400,
+                "max_mhz": 1400,
             },
             "env": {
-                "CUDA_VISIBLE_DEVICES": 0,
                 "TRTLLM_LOG_LEVEL": "INFO",
             },
-        }
-    )
-    template["vars"]["batch_size"] = {"sweep": [1, 2, 4, 8, 16, 32]}
-    template["trtllm"]["throughput"].update(
-        {
-            "isl": 1024,
-            "osl": 1,
-            "ep": 4,
-            "dp": 4,
-            "max_num_tokens": "${vars.batch_size * trtllm.throughput.osl + 1}",
-            "iteration_log": None,
-        }
-    )
-    template["trtllm"]["throughput"]["dataset"]["num_requests"] = 256
-    template["trtllm"]["throughput"]["config"]["content"]["enable_attention_dp"] = True
-    return template
+        },
+        "vars": {
+            "batch_size": {
+                "sweep": [1, 2, 4, 8, 16, 32],
+            },
+        },
+        "trtllm": {
+            "model": "meta-llama/Llama-2-7b-hf",
+            "model_path": "/mnt/engines/llama2-7b",
+            "throughput": {
+                "ep": 4,
+                "tp": 4,
+                "warmup": 0,
+                "backend": "pytorch",
+                "max_batch_size": "${vars.batch_size}",
+                "max_num_tokens": (
+                    "${vars.batch_size * trtllm.throughput.dataset.input_mean + 1}"
+                ),
+                "num_requests": 256,
+                "iteration_log": "${runtime.run_dir}/iter.log",
+                "dataset": {
+                    "root": "/mnt/datasets/autobench",
+                    "generator": "token-norm-dist",
+                    "num_requests": 256,
+                    "input_mean": 1024,
+                    "output_mean": 1024,
+                    "input_stdev": 0,
+                    "output_stdev": 0,
+                },
+                "config": {
+                    "content": {
+                        "cuda_graph_config": {
+                            "enable_padding": True,
+                            "batch_sizes": [1, "${vars.batch_size}"],
+                        },
+                        "enable_attention_dp": True,
+                    },
+                },
+            },
+        },
+    }
 
 
 TEMPLATES: dict[str, Callable[[], dict[str, Any]]] = {
