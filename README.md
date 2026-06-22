@@ -12,19 +12,19 @@ focuses on protocol parsing, validation, command rendering, and tests.
 Install the CLI directly from GitHub with pip:
 
 ```bash
-pip install "auto-bench @ git+https://github.com/<owner>/auto-bench.git@main"
+pip install "auto-bench @ git+https://github.com/Xianyu39/auto-bench.git@main"
 ```
 
 Install it as a uv-managed tool:
 
 ```bash
-uv tool install "git+https://github.com/<owner>/auto-bench.git@main"
+uv tool install "git+https://github.com/Xianyu39/auto-bench.git@main"
 ```
 
 Run it without a persistent install:
 
 ```bash
-uvx --from "git+https://github.com/<owner>/auto-bench.git@main" auto-bench --help
+uvx --from "git+https://github.com/Xianyu39/auto-bench.git@main" auto-bench --help
 ```
 
 After installing, the CLI is available as:
@@ -33,9 +33,8 @@ After installing, the CLI is available as:
 auto-bench --help
 ```
 
-Replace `<owner>` with the GitHub account or organization that hosts this
-repository. For reproducible installs, replace `@main` with a release tag such
-as `@v0.1.0` after tagging a release.
+For reproducible installs, replace `@main` with a release tag such as `@v0.1.0`
+after tagging a release.
 
 ## Development
 
