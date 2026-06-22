@@ -61,6 +61,7 @@ def test_resolve_sweeps_dataset_config_and_commands() -> None:
         "batch_sizes"
     ] == [1, 1]
     assert case["commands"]["write_config"]["path"] == "config.yaml"
+    assert case["trtllm"]["throughput"]["config"] == "config.yaml"
     assert "--config" in case["commands"]["benchmark"]["argv"]
     assert "--dataset" in case["commands"]["benchmark"]["argv"]
     assert "--batch_size" not in case["commands"]["benchmark"]["argv"]
@@ -116,6 +117,48 @@ def test_unknown_trtllm_parameters_are_preserved_and_rendered() -> None:
     assert argv[argv.index("--custom_command") + 1] == "42"
     assert argv.index("--custom_global") < argv.index("throughput")
     assert argv.index("--custom_command") > argv.index("throughput")
+
+
+def test_runtime_variables_are_available_to_expressions() -> None:
+    result = resolve(
+        {
+            "metadata": {"name": "runtime_vars"},
+            "trtllm": {
+                "model": "llama",
+                "run_dir_marker": "${runtime.run_dir}",
+                "throughput": {
+                    "dataset": {
+                        "root": "${runtime.dataset_dir}",
+                        "generator": "token-norm-dist",
+                        "num_requests": 8,
+                        "input_mean": 16,
+                        "output_mean": 4,
+                        "input_stdev": 0,
+                        "output_stdev": 0,
+                    },
+                    "log_path": "${runtime.log_path}",
+                    "config_path": "${runtime.config_path}",
+                },
+            },
+        }
+    )
+
+    case = result["cases"][0]
+    argv = case["commands"]["benchmark"]["argv"]
+    assert case["runtime"] == {
+        "case_id": "runtime_vars",
+        "run_dir": "$SCRIPT_DIR",
+        "log_path": "$SCRIPT_DIR/run.log",
+        "config_path": "$SCRIPT_DIR/config.yaml",
+        "dataset_dir": "$SCRIPT_DIR/datasets",
+    }
+    assert case["trtllm"]["run_dir_marker"] == "$SCRIPT_DIR"
+    assert case["trtllm"]["throughput"]["dataset"].startswith(
+        "$SCRIPT_DIR/datasets/token-norm-dist__"
+    )
+    assert argv[argv.index("--run_dir_marker") + 1] == "$SCRIPT_DIR"
+    assert argv[argv.index("--log_path") + 1] == "$SCRIPT_DIR/run.log"
+    assert argv[argv.index("--config_path") + 1] == "$SCRIPT_DIR/config.yaml"
 
 
 def test_missing_reference_errors() -> None:

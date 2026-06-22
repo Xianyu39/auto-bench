@@ -223,7 +223,7 @@ def _quote_args(argv: list[Any]) -> list[str]:
     parts: list[str] = []
     for arg in argv:
         text = str(arg)
-        if text.startswith("$SCRIPT_DIR/"):
+        if _is_script_dir_path(text):
             parts.append(f'"{text}"')
         else:
             parts.append(_sh(text))
@@ -231,4 +231,10 @@ def _quote_args(argv: list[Any]) -> list[str]:
 
 
 def _sh(value: str) -> str:
+    if _is_script_dir_path(value):
+        return f'"{value}"'
     return shlex.quote(os.fspath(value))
+
+
+def _is_script_dir_path(value: str) -> bool:
+    return value == "$SCRIPT_DIR" or value.startswith("$SCRIPT_DIR/")

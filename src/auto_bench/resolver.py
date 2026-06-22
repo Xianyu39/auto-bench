@@ -23,11 +23,26 @@ yaml.default_flow_style = False
 yaml.width = 4096
 yaml.representer.ignore_aliases = lambda *_args: True
 
+RUNTIME_CONTEXT = {
+    "run_dir": "$SCRIPT_DIR",
+    "log_path": "$SCRIPT_DIR/run.log",
+    "config_path": "$SCRIPT_DIR/config.yaml",
+    "dataset_dir": "$SCRIPT_DIR/datasets",
+}
+
 
 @dataclass(frozen=True)
 class SweepField:
     path: tuple[str, ...]
     values: Sequence[Any]
+
+
+@dataclass(frozen=True)
+class PathOptionResult:
+    option_name: str
+    path: str
+    operation_name: str
+    operation: dict[str, Any]
 
 
 def load_experiment(path: str | Path) -> dict[str, Any]:
@@ -122,6 +137,7 @@ def _resolve_case(
         "metadata": case_data["metadata"],
         "vars": case_data.get("vars", {}),
         "trtllm": case_data["trtllm"],
+        "runtime": RUNTIME_CONTEXT,
     }
     rendered = render_value(case_data, context, "")
     metadata = rendered["metadata"]
@@ -139,8 +155,8 @@ def _resolve_case(
     _apply_defaults(trtllm)
     _command_entry(trtllm)
     case_id = _case_id(metadata, assignment)
-    prepare_dataset = _resolve_dataset(trtllm)
-    write_config = _resolve_config(trtllm)
+    runtime = {**RUNTIME_CONTEXT, "case_id": case_id}
+    operations = _resolve_path_options(trtllm)
     benchmark = _benchmark_command(trtllm)
     _assert_no_unresolved(rendered)
 
@@ -148,10 +164,11 @@ def _resolve_case(
         "case_id": case_id,
         "metadata": metadata,
         "vars": variables,
+        "runtime": runtime,
         "trtllm": trtllm,
         "commands": {
-            "prepare_dataset": prepare_dataset,
-            "write_config": write_config,
+            "prepare_dataset": operations.get("prepare_dataset"),
+            "write_config": operations.get("write_config"),
             "benchmark": benchmark,
         },
     }
@@ -200,8 +217,26 @@ def _command_options(trtllm: Mapping[str, Any]) -> dict[str, Any]:
     return command_options
 
 
-def _resolve_dataset(trtllm: dict[str, Any]) -> dict[str, Any] | None:
+def _resolve_path_options(trtllm: dict[str, Any]) -> dict[str, dict[str, Any] | None]:
     command_name, command_options = _command_entry(trtllm)
+    operations: dict[str, dict[str, Any] | None] = {
+        "prepare_dataset": None,
+        "write_config": None,
+    }
+    for resolver in (_dataset_path_option, _config_path_option):
+        result = resolver(trtllm, command_name, command_options)
+        if result is None:
+            continue
+        command_options[result.option_name] = result.path
+        operations[result.operation_name] = result.operation
+    return operations
+
+
+def _dataset_path_option(
+    trtllm: dict[str, Any],
+    command_name: str,
+    command_options: dict[str, Any],
+) -> PathOptionResult | None:
     dataset = command_options.get("dataset")
     if dataset is None:
         return None
@@ -237,7 +272,6 @@ def _resolve_dataset(trtllm: dict[str, Any]) -> dict[str, Any] | None:
         f"__n={dataset.get('num_requests')}.txt"
     )
     output = str(Path(root) / filename)
-    command_options["dataset"] = output
 
     argv = ["trtllm-bench"]
     if "model" in trtllm:
@@ -247,14 +281,21 @@ def _resolve_dataset(trtllm: dict[str, Any]) -> dict[str, Any] | None:
     for field, cli_name in generator_args.items():
         if field in dataset:
             argv.extend([f"--{cli_name}", str(dataset[field])])
-    return {"if_missing": True, "output": output, "argv": argv}
+    return PathOptionResult(
+        option_name="dataset",
+        path=output,
+        operation_name="prepare_dataset",
+        operation={"if_missing": True, "output": output, "argv": argv},
+    )
 
 
-def _resolve_config(trtllm: dict[str, Any]) -> dict[str, Any] | None:
-    command_name, command_options = _command_entry(trtllm)
+def _config_path_option(
+    _trtllm: dict[str, Any],
+    command_name: str,
+    command_options: dict[str, Any],
+) -> PathOptionResult | None:
     config = command_options.get("config")
     if config is None:
-        command_options["config"] = None
         return None
     if isinstance(config, str):
         return None
@@ -269,9 +310,12 @@ def _resolve_config(trtllm: dict[str, Any]) -> dict[str, Any] | None:
             f"trtllm.{command_name}.config: managed config requires mapping content"
         )
     path = "config.yaml"
-    artifact = {"path": path, "content": content}
-    command_options["config"] = artifact
-    return artifact
+    return PathOptionResult(
+        option_name="config",
+        path=path,
+        operation_name="write_config",
+        operation={"path": path, "content": content},
+    )
 
 
 def _benchmark_command(trtllm: Mapping[str, Any]) -> dict[str, list[str]]:

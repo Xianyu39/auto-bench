@@ -18,11 +18,13 @@ The input YAML may contain sweep values and expressions. The resolved output
 must not. Every resolved case must contain:
 
 - A fully materialized `trtllm` config with no missing TensorRT-LLM benchmark
-  parameters needed for the fixed supported TensorRT-LLM version.
-- A dataset path that exists before the benchmark command runs.
+  parameters from the input after sweep and expression expansion.
+- A dataset path that exists before the benchmark command runs, when the
+  selected benchmark command is configured with a dataset.
 - A TensorRT-LLM `config.yaml` artifact when deep runtime or LLM API options
   are configured.
 - A benchmark command expressed as an argv list.
+- Runtime helper paths such as `runtime.run_dir` and `runtime.log_path`.
 
 If a managed dataset is configured and the dataset file is missing, autobench
 must generate it before running the benchmark command.
@@ -155,8 +157,29 @@ Fields under that subcommand are rendered as subcommand options.
 subcommand. In input YAML, `<command>.dataset` may be either a dataset path or a
 managed dataset specification. In resolved output, it must always be a dataset
 path. `<command>.config` describes the TensorRT-LLM YAML config artifact passed
-with `--config`; in resolved output, it must be either `null` or a materialized
-config artifact with a path and YAML content.
+with `--config`; in resolved output, it must be either `null` or a config path.
+The file-write operation, when needed, is recorded under
+`commands.write_config`.
+
+### `runtime`
+
+`runtime` is a built-in read-only expression namespace. It is not a YAML
+top-level section and is not rendered as command-line arguments.
+
+Available runtime values:
+
+- `runtime.run_dir`: case run directory at shell execution time, rendered as
+  `$SCRIPT_DIR`.
+- `runtime.log_path`: case log file path, rendered as `$SCRIPT_DIR/run.log`.
+- `runtime.config_path`: case-local config path, rendered as
+  `$SCRIPT_DIR/config.yaml`.
+- `runtime.dataset_dir`: case-local dataset directory, rendered as
+  `$SCRIPT_DIR/datasets`.
+- `runtime.case_id`: resolved case identifier. This value is recorded in
+  resolved output; it is not available while evaluating input expressions.
+
+Runtime path values intentionally use shell variables so rendered `cmd.sh`
+files remain relocatable.
 
 ## Parameter Value Types
 
@@ -334,9 +357,10 @@ If `<command>.config` is a string path, autobench treats it as a user-managed
 config file. The benchmark command includes `--config <path>`, but autobench
 does not generate the file.
 
-If `<command>.config` is a managed config object, the resolved case must include
-the config path `config.yaml`, the generated config content, and a file-write
-plan.
+If `<command>.config` is a managed config object, the resolved
+`<command>.config` value is the generated config path `config.yaml`. The
+generated config content and file-write plan are recorded under
+`commands.write_config`.
 
 ## Path References And Expressions
 
@@ -345,6 +369,7 @@ Expressions may reference values with dotted paths:
 - `metadata.<path>`
 - `vars.<path>`
 - `trtllm.<path>`
+- `runtime.<path>`
 
 Examples:
 
@@ -357,10 +382,19 @@ vars:
     sweep: [1, 2, 4]
 
 trtllm:
+  artifact_dir: "${runtime.run_dir}/artifacts"
   throughput:
     isl: 1024
     osl: 128
-    dataset: "/data/${metadata.model_family}/i${trtllm.throughput.isl}_o${trtllm.throughput.osl}.txt"
+    dataset:
+      root: "${runtime.dataset_dir}"
+      generator: token-norm-dist
+      num_requests: 1000
+      input_mean: "${trtllm.throughput.isl}"
+      output_mean: "${trtllm.throughput.osl}"
+      input_stdev: 0
+      output_stdev: 0
+    log_path: "${runtime.log_path}"
     max_batch_size: "${vars.batch_size}"
     max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
 ```
@@ -377,12 +411,12 @@ v0.1 supports a safe expression subset:
 - Boolean logic: `and`, `or`, `not`
 - Parentheses
 - String and numeric literals
-- Path references under `metadata`, `vars`, and `trtllm`
+- Path references under `metadata`, `vars`, `trtllm`, and `runtime`
 - Functions: `min`, `max`, `int`, `str`, `ceil`, `floor`, `slug`
 
 The expression evaluator must not execute arbitrary Python or shell code. File
-access, imports, attribute access outside `metadata`, `vars`, and `trtllm`, and
-calls to unlisted functions are forbidden.
+access, imports, attribute access outside `metadata`, `vars`, `trtllm`, and
+`runtime`, and calls to unlisted functions are forbidden.
 
 `slug(value)` converts a value into a path-safe string. It is intended for
 dataset filenames and case identifiers.
@@ -461,21 +495,23 @@ cases:
       tags: [decode, h100]
     vars:
       batch_size: 1
+    runtime:
+      case_id: llama2_7b_decode__vars.batch_size=1
+      run_dir: $SCRIPT_DIR
+      log_path: $SCRIPT_DIR/run.log
+      config_path: $SCRIPT_DIR/config.yaml
+      dataset_dir: $SCRIPT_DIR/datasets
     trtllm:
       model: meta-llama/Llama-2-7b-hf
-      isl: 1024
-      osl: 128
-      max_batch_size: 1
-      max_num_tokens: 128
-      dataset: /data/llama2/i1024_o128.txt
-      config:
-        path: config.yaml
-        content:
-          cuda_graph_config:
-            enable_padding: true
-            batch_sizes: [1]
-      warmup: 5
-      iterations: 30
+      throughput:
+        isl: 1024
+        osl: 128
+        max_batch_size: 1
+        max_num_tokens: 128
+        dataset: /data/llama2/i1024_o128.txt
+        config: config.yaml
+        warmup: 5
+        iterations: 30
     commands:
       prepare_dataset: null
       write_config:
@@ -572,7 +608,8 @@ defines an explicit value-taking boolean flag.
 ### Config Artifact
 
 The generated config artifact is a YAML file whose content is exactly the
-resolved `<command>.config.content` mapping.
+resolved `commands.write_config.content` mapping. The corresponding
+`<command>.config` option resolves to the artifact path.
 
 Example:
 
@@ -649,8 +686,8 @@ Validation and rendering rules:
 - Input `<command>.dataset` may be a managed dataset object, but resolved
   `<command>.dataset` must be a string path.
 - Input `<command>.config` may be absent, `null`, a user-managed path, or a
-  managed config object. Resolved `<command>.config` must be `null` or an object
-  with `path` and `content`.
+  managed config object. Resolved `<command>.config` must be `null` or a string
+  path.
 - Managed dataset generator arguments must be known for the selected generator.
 - Managed dataset filenames must be deterministic for the resolved generator
   fields.
@@ -765,6 +802,12 @@ cases:
         TRTLLM_LOG_LEVEL: INFO
     vars:
       batch_size: 4
+    runtime:
+      case_id: llama2_7b_decode__vars.batch_size=4__trtllm.throughput.isl=128__trtllm.throughput.kv_cache_dtype=fp8
+      run_dir: $SCRIPT_DIR
+      log_path: $SCRIPT_DIR/run.log
+      config_path: $SCRIPT_DIR/config.yaml
+      dataset_dir: $SCRIPT_DIR/datasets
     trtllm:
       model: meta-llama/Llama-2-7b-hf
       model_path: /mnt/engines/llama2-7b
@@ -773,15 +816,7 @@ cases:
         osl: 128
         kv_cache_dtype: fp8
         dataset: /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
-        config:
-          path: config.yaml
-          content:
-            cuda_graph_config:
-              enable_padding: true
-              batch_sizes: [1, 2, 4]
-            kv_cache_config:
-              free_gpu_memory_fraction: 0.9
-            print_iter_log: true
+        config: config.yaml
         max_batch_size: 4
         max_num_tokens: 512
         warmup: 5

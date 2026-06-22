@@ -76,6 +76,30 @@ def test_render_environment_variables(tmp_path: Path) -> None:
     assert "export TRTLLM_LOG_LEVEL=INFO" in cmd_text
 
 
+def test_render_internal_script_dir_paths_expand_in_shell(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["commands"]["prepare_dataset"]["output"] = (
+        "$SCRIPT_DIR/datasets/data.txt"
+    )
+    payload["cases"][0]["commands"]["prepare_dataset"]["argv"] = [
+        "trtllm-bench",
+        "prepare-dataset",
+        "--output",
+        "$SCRIPT_DIR/datasets/data.txt",
+    ]
+    payload["cases"][0]["commands"]["benchmark"]["argv"].extend(
+        ["--artifact_dir", "$SCRIPT_DIR/artifacts"]
+    )
+
+    render_resolved(payload, tmp_path)
+
+    cmd_text = (tmp_path / "cmd.sh").read_text()
+    assert 'if [ ! -f "$SCRIPT_DIR/datasets/data.txt" ]; then' in cmd_text
+    assert 'mkdir -p "$SCRIPT_DIR/datasets"' in cmd_text
+    assert '  --output "$SCRIPT_DIR/datasets/data.txt"' in cmd_text
+    assert '  --artifact_dir "$SCRIPT_DIR/artifacts"' in cmd_text
+
+
 def _resolved_payload() -> dict:
     return {
         "version": "autobench.resolved/v0.1",
