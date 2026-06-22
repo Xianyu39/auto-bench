@@ -74,6 +74,13 @@ uv run auto-bench render examples/decode_sweep.yaml -o artifacts/decode_sweep
 For each resolved case, render creates a `cmd.sh`. If the case uses a managed
 config, render also creates a local `config.yaml` next to `cmd.sh`.
 
+Generate a starter YAML template:
+
+```bash
+uv run auto-bench template decode -o examples/my_decode.yaml
+uv run auto-bench template prefill
+```
+
 ## Documentation
 
 - [YAML protocol v0.1](docs/yaml_protocol_v0.1.md)

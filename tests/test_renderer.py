@@ -59,6 +59,20 @@ def test_render_gpu_frequency_lock(tmp_path: Path) -> None:
     assert "  -lgc 1410,1410" in cmd_text
 
 
+def test_render_environment_variables(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["metadata"]["env"] = {
+        "CUDA_VISIBLE_DEVICES": 0,
+        "TRTLLM_LOG_LEVEL": "INFO",
+    }
+
+    render_resolved(payload, tmp_path)
+
+    cmd_text = (tmp_path / "cmd.sh").read_text()
+    assert "export CUDA_VISIBLE_DEVICES=0" in cmd_text
+    assert "export TRTLLM_LOG_LEVEL=INFO" in cmd_text
+
+
 def _resolved_payload() -> dict:
     return {
         "version": "autobench.resolved/v0.1",

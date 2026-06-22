@@ -86,6 +86,7 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
         "",
     ]
+    lines.extend(_environment_lines(case.get("metadata", {})))
     lines.extend(_gpu_frequency_lines(case.get("metadata", {})))
 
     prepare = commands.get("prepare_dataset")
@@ -116,6 +117,17 @@ def _metadata_gap(case: Any) -> int | float:
     if isinstance(gap, int | float) and gap > 0:
         return gap
     return 0
+
+
+def _environment_lines(metadata: Any) -> list[str]:
+    if not isinstance(metadata, dict):
+        return []
+    env = metadata.get("env")
+    if not isinstance(env, dict) or not env:
+        return []
+    lines = [f"export {key}={_sh(str(value))}" for key, value in env.items()]
+    lines.append("")
+    return lines
 
 
 def _gpu_frequency_lines(metadata: Any) -> list[str]:

@@ -7,6 +7,9 @@ metadata:
     min_mhz: 1410
     max_mhz: 1410
     gpu_ids: [0]
+  env:
+    CUDA_VISIBLE_DEVICES: 0
+    TRTLLM_LOG_LEVEL: INFO
 
 vars:
   batch_size:
@@ -19,8 +22,11 @@ trtllm:
 
   isl: 1024
   osl: 1
+  ep: 4
+  dp: 4
   max_batch_size: "${vars.batch_size}"
-  max_num_tokens: "${vars.batch_size * trtllm.osl}"
+  max_num_tokens: "${vars.batch_size * trtllm.osl + 1}"
+  iteration_log: null
 
   dataset:
     root: /mnt/datasets/autobench
@@ -36,3 +42,4 @@ trtllm:
       cuda_graph_config:
         enable_padding: true
         batch_sizes: [1, "${vars.batch_size}"]
+      enable_attention_dp: true

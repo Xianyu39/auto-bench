@@ -19,6 +19,7 @@ def test_resolve_sweeps_dataset_config_and_commands() -> None:
                 "model_path": "/engines/llama",
                 "isl": {"sweep": [128, 256]},
                 "osl": 64,
+                "iteration_log": None,
                 "dataset": {
                     "root": "/datasets",
                     "generator": "token-norm-dist",
@@ -57,6 +58,8 @@ def test_resolve_sweeps_dataset_config_and_commands() -> None:
     assert "--config" in case["commands"]["benchmark"]["argv"]
     assert "--dataset" in case["commands"]["benchmark"]["argv"]
     assert "--batch_size" not in case["commands"]["benchmark"]["argv"]
+    argv = case["commands"]["benchmark"]["argv"]
+    assert argv[argv.index("--iteration-log")] == "--iteration-log"
 
 
 def test_user_managed_dataset_and_config_path() -> None:

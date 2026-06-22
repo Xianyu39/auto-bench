@@ -26,8 +26,11 @@ TRTLLM_MANIFEST: dict[str, ParamSpec] = {
     # Common benchmark fields used by the protocol examples. The full fixed
     # TensorRT-LLM manifest can replace or extend this table.
     "model_path": ParamSpec("command", "model_path"),
+    "ep": ParamSpec("command", "ep"),
+    "dp": ParamSpec("command", "dp"),
     "isl": ParamSpec("command", "isl"),
     "osl": ParamSpec("command", "osl"),
+    "iteration_log": ParamSpec("command", "iteration-log"),
     "kv_cache_dtype": ParamSpec("command", "kv_cache_dtype"),
     "max_batch_size": ParamSpec("command", "max_batch_size"),
     "max_num_tokens": ParamSpec("command", "max_num_tokens"),

@@ -42,6 +42,9 @@ metadata:
     min_mhz: 1410
     max_mhz: 1410
     gpu_ids: [0]
+  env:
+    CUDA_VISIBLE_DEVICES: 0
+    TRTLLM_LOG_LEVEL: INFO
 
 vars:
   batch_size:
@@ -84,6 +87,7 @@ Recommended fields:
 - `gap`: seconds to wait between rendered case scripts in `run_all.sh`.
 - `gpu_frequency`: optional GPU graphics clock lock rendered into each
   `cmd.sh` before the benchmark command.
+- `env`: environment variables exported by each rendered `cmd.sh`.
 
 Additional metadata fields are allowed. They may be referenced by expressions
 with `metadata.<path>`.
@@ -110,6 +114,15 @@ nvidia-smi -i 0 -lgc 1410,1410
 
 These metadata fields affect rendered shell scripts only. They are not
 TensorRT-LLM benchmark parameters.
+
+`metadata.env` is a mapping from environment variable names to scalar values.
+The render step writes them before GPU frequency locking and before benchmark
+commands:
+
+```bash
+export CUDA_VISIBLE_DEVICES=0
+export TRTLLM_LOG_LEVEL=INFO
+```
 
 ### `vars`
 
@@ -156,6 +169,22 @@ trtllm:
   osl: 128
   streaming: false
 ```
+
+An explicit `null` value under `trtllm` represents a no-value CLI flag. For
+example:
+
+```yaml
+trtllm:
+  iteration_log: null
+```
+
+renders as:
+
+```bash
+--iteration-log
+```
+
+Omit the field entirely when the flag should not be rendered.
 
 ### Sweep
 
@@ -665,6 +694,9 @@ metadata:
     min_mhz: 1410
     max_mhz: 1410
     gpu_ids: [0]
+  env:
+    CUDA_VISIBLE_DEVICES: 0
+    TRTLLM_LOG_LEVEL: INFO
 
 vars:
   batch_size:
@@ -726,6 +758,9 @@ cases:
         min_mhz: 1410
         max_mhz: 1410
         gpu_ids: [0]
+      env:
+        CUDA_VISIBLE_DEVICES: 0
+        TRTLLM_LOG_LEVEL: INFO
     vars:
       batch_size: 4
     trtllm:

@@ -260,6 +260,8 @@ def _benchmark_command(trtllm: Mapping[str, Any]) -> dict[str, list[str]]:
 
 def _render_option(name: str, value: Any, value_taking_bool: bool) -> list[str]:
     option = f"--{name}"
+    if value is None:
+        return [option]
     if isinstance(value, bool) and not value_taking_bool:
         return [option] if value else []
     if isinstance(value, list):
