@@ -33,7 +33,7 @@ After installing, the CLI is available as:
 auto-bench --help
 ```
 
-For reproducible installs, replace `@main` with a release tag such as `@v0.1.1`
+For reproducible installs, replace `@main` with a release tag such as `@v0.1.2`
 after tagging a release.
 
 ## Development

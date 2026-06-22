@@ -93,20 +93,29 @@ def test_user_managed_dataset_and_config_path() -> None:
     assert argv[argv.index("--dataset") + 1] == "/datasets/static.txt"
 
 
-def test_unknown_trtllm_parameter_errors() -> None:
-    with pytest.raises(ProtocolError, match="unknown global parameters"):
-        resolve(
-            {
-                "metadata": {"name": "bad"},
-                "trtllm": {
-                    "model": "llama",
-                    "not_a_trtllm_param": True,
-                    "throughput": {
-                        "dataset": "/datasets/static.txt",
-                    },
+def test_unknown_trtllm_parameters_are_preserved_and_rendered() -> None:
+    result = resolve(
+        {
+            "metadata": {"name": "custom"},
+            "trtllm": {
+                "model": "llama",
+                "custom_global": "root-value",
+                "throughput": {
+                    "dataset": "/datasets/static.txt",
+                    "custom_command": 42,
                 },
-            }
-        )
+            },
+        }
+    )
+
+    case = result["cases"][0]
+    argv = case["commands"]["benchmark"]["argv"]
+    assert case["trtllm"]["custom_global"] == "root-value"
+    assert case["trtllm"]["throughput"]["custom_command"] == 42
+    assert argv[argv.index("--custom_global") + 1] == "root-value"
+    assert argv[argv.index("--custom_command") + 1] == "42"
+    assert argv.index("--custom_global") < argv.index("throughput")
+    assert argv.index("--custom_command") > argv.index("throughput")
 
 
 def test_missing_reference_errors() -> None:

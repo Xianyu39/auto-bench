@@ -142,8 +142,9 @@ Fields under `vars` may be referenced with `vars.<path>`.
 `trtllm` describes TensorRT-LLM benchmark parameters. It is the only section
 that maps to benchmark parameters and benchmark commands.
 
-Every key under the `trtllm` root must be either a known root-level
-TensorRT-LLM benchmark parameter or the selected subcommand name.
+Every non-command key under the `trtllm` root is treated as a root-level
+`trtllm-bench` option. Autobench does not require this parameter to appear in
+its internal manifest.
 
 The `trtllm` root contains options that belong to `trtllm-bench` itself, such
 as `model` and `model_path`. Exactly one supported benchmark subcommand must
@@ -439,11 +440,9 @@ A resolver must process the input in this order:
    prepare-dataset commands.
 9. Resolve managed `<command>.config` objects into config paths, config content,
    and file-write plans.
-10. Apply manifest defaults for missing optional `trtllm` parameters.
-11. Validate required `trtllm` parameters.
-12. Reject unknown `trtllm` parameters.
-13. Render benchmark commands.
-14. Emit resolved cases.
+10. Apply manifest defaults for known optional `trtllm` parameters.
+11. Render benchmark commands, including parameters not present in the manifest.
+12. Emit resolved cases.
 
 Resolved cases must not contain `sweep` objects, managed dataset objects,
 managed config objects, or unresolved `${...}` expressions.
@@ -501,10 +500,10 @@ cases:
           - "128"
 ```
 
-Each resolved `trtllm` object must contain all required root-level TensorRT-LLM
-benchmark parameters, one subcommand mapping, and all required subcommand
-parameters. Parameters with manifest defaults must be materialized in the
-resolved output.
+Each resolved `trtllm` object must contain one subcommand mapping. Known
+parameters with manifest defaults must be materialized in the resolved output.
+Parameters that are not present in the manifest are preserved as-is and rendered
+as CLI options.
 
 If `<command>.dataset` is managed, `commands.prepare_dataset` must contain an
 argv list. If `<command>.dataset` is already a path, `commands.prepare_dataset`
@@ -629,27 +628,24 @@ commands:
       - "0"
 ```
 
-## Completeness Validation
+## Parameter Manifest
 
-The resolver relies on an internal manifest for the fixed supported
-TensorRT-LLM benchmark version.
+The resolver has an internal manifest for parameter rendering hints, but the
+manifest is intentionally incomplete. It must not be used as a whitelist for
+TensorRT-LLM benchmark parameters.
 
-The manifest defines:
+The manifest may define:
 
-- Parameter names.
-- Parameter types.
-- Whether a parameter is required.
-- Default values for optional parameters.
+- CLI spelling for known parameters whose YAML key differs from the CLI flag.
+- Whether a known boolean option takes an explicit value.
+- Default values for known optional parameters.
 
-Validation rules:
+Validation and rendering rules:
 
-- Missing required `trtllm` parameters are errors.
-- Missing optional `trtllm` parameters with manifest defaults are filled.
-- Unknown `trtllm` root parameters, subcommand parameters, or protocol fields
-  are errors.
-- Values must match manifest types after expression evaluation.
-- Resolved `trtllm` root keys must be either root-level TensorRT-LLM manifest
-  parameters or one supported subcommand name after defaults are applied.
+- Missing benchmark parameters are not errors at resolver time.
+- Unknown `trtllm` root parameters and subcommand parameters are preserved.
+- Unknown parameters are rendered as `--<yaml_key>`.
+- Known parameters use their manifest CLI spelling when one is defined.
 - Input `<command>.dataset` may be a managed dataset object, but resolved
   `<command>.dataset` must be a string path.
 - Input `<command>.config` may be absent, `null`, a user-managed path, or a
@@ -675,8 +671,6 @@ The resolver must fail the whole YAML file on any of the following errors:
 - Unknown managed dataset generator argument.
 - Invalid managed config object.
 - Managed config content that is not a YAML mapping.
-- Unknown `trtllm` parameter.
-- Missing required `trtllm` parameter.
 - Expression syntax error.
 - Reference to a nonexistent path.
 - Reference to an unresolved sweep object.
@@ -867,8 +861,8 @@ Future parser tests should cover:
 - Managed config objects render `write_config` plans.
 - User-managed config paths render `--config <path>` without a write plan.
 - Benchmark commands render as argv lists.
-- Unknown `trtllm` parameters fail validation.
-- Missing required parameters fail validation.
+- Unknown `trtllm` parameters are preserved and rendered.
+- Missing benchmark parameters do not fail resolver validation.
 - Expressions referencing nonexistent paths fail validation.
 - Resolved output contains no `sweep` objects, managed dataset objects, managed
   config objects, or unresolved expressions.

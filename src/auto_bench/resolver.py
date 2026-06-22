@@ -15,6 +15,7 @@ from auto_bench.manifest import (
     COMMANDS,
     DATASET_GENERATORS,
     TRTLLM_MANIFEST,
+    ParamSpec,
 )
 
 yaml = YAML()
@@ -136,7 +137,7 @@ def _resolve_case(
         )
 
     _apply_defaults(trtllm)
-    _validate_trtllm(trtllm)
+    _command_entry(trtllm)
     case_id = _case_id(metadata, assignment)
     prepare_dataset = _resolve_dataset(trtllm)
     write_config = _resolve_config(trtllm)
@@ -173,38 +174,6 @@ def _apply_defaults(trtllm: dict[str, Any]) -> None:
             command_options[name] = copy.deepcopy(spec.default)
 
 
-def _validate_trtllm(trtllm: Mapping[str, Any]) -> None:
-    command_name, command_options = _command_entry(trtllm)
-    global_names = {
-        name for name, spec in TRTLLM_MANIFEST.items() if spec.location == "global"
-    }
-    command_names = {
-        name for name, spec in TRTLLM_MANIFEST.items() if spec.location != "global"
-    }
-    unknown_globals = set(trtllm) - global_names - COMMANDS
-    if unknown_globals:
-        raise ProtocolError(
-            f"trtllm: unknown global parameters: {sorted(unknown_globals)}"
-        )
-    unknown_options = set(command_options) - command_names
-    if unknown_options:
-        raise ProtocolError(
-            "trtllm."
-            f"{command_name}: unknown command parameters: {sorted(unknown_options)}"
-        )
-    for name, spec in TRTLLM_MANIFEST.items():
-        if spec.required and spec.location == "global" and name not in trtllm:
-            raise ProtocolError(f"trtllm.{name}: missing required parameter")
-        if (
-            spec.required
-            and spec.location != "global"
-            and name not in command_options
-        ):
-            raise ProtocolError(
-                f"trtllm.{command_name}.{name}: missing required parameter"
-            )
-
-
 def _command_entry(trtllm: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     command_names = [name for name in trtllm if name in COMMANDS]
     if not command_names:
@@ -234,6 +203,8 @@ def _command_options(trtllm: Mapping[str, Any]) -> dict[str, Any]:
 def _resolve_dataset(trtllm: dict[str, Any]) -> dict[str, Any] | None:
     command_name, command_options = _command_entry(trtllm)
     dataset = command_options.get("dataset")
+    if dataset is None:
+        return None
     if isinstance(dataset, str):
         return None
     if not isinstance(dataset, dict):
@@ -268,7 +239,10 @@ def _resolve_dataset(trtllm: dict[str, Any]) -> dict[str, Any] | None:
     output = str(Path(root) / filename)
     command_options["dataset"] = output
 
-    argv = ["trtllm-bench", "--model", str(trtllm["model"]), "prepare-dataset"]
+    argv = ["trtllm-bench"]
+    if "model" in trtllm:
+        argv.extend(["--model", str(trtllm["model"])])
+    argv.append("prepare-dataset")
     argv.extend(["--output", output, generator])
     for field, cli_name in generator_args.items():
         if field in dataset:
@@ -307,9 +281,9 @@ def _benchmark_command(trtllm: Mapping[str, Any]) -> dict[str, list[str]]:
     for name, value in trtllm.items():
         if name in COMMANDS:
             continue
-        spec = TRTLLM_MANIFEST[name]
+        spec = TRTLLM_MANIFEST.get(name)
         argv.extend(
-            _render_option(spec.cli_name or name, value, spec.value_taking_bool)
+            _render_option(_cli_name(name, spec), value, _value_taking_bool(spec))
         )
 
     argv.append(command_name)
@@ -325,11 +299,21 @@ def _benchmark_command(trtllm: Mapping[str, Any]) -> dict[str, list[str]]:
             elif isinstance(value, dict):
                 argv.extend(["--config", str(value["path"])])
             continue
-        spec = TRTLLM_MANIFEST[name]
+        spec = TRTLLM_MANIFEST.get(name)
         argv.extend(
-            _render_option(spec.cli_name or name, value, spec.value_taking_bool)
+            _render_option(_cli_name(name, spec), value, _value_taking_bool(spec))
         )
     return {"argv": argv}
+
+
+def _cli_name(name: str, spec: ParamSpec | None) -> str:
+    if spec is not None and spec.cli_name is not None:
+        return spec.cli_name
+    return name
+
+
+def _value_taking_bool(spec: ParamSpec | None) -> bool:
+    return bool(spec is not None and spec.value_taking_bool)
 
 
 def _render_option(name: str, value: Any, value_taking_bool: bool) -> list[str]:
