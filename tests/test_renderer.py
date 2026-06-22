@@ -15,6 +15,9 @@ def test_render_single_case_cmd_and_config(tmp_path: Path) -> None:
     assert config.exists()
     assert cmd.stat().st_mode & 0o111
     cmd_text = cmd.read_text()
+    assert 'LOG_FILE="$SCRIPT_DIR/run.log"' in cmd_text
+    assert ': > "$LOG_FILE"' in cmd_text
+    assert 'exec > >(tee -a "$LOG_FILE") 2>&1' in cmd_text
     assert "trtllm-bench \\" in cmd_text
     assert "  --model llama \\" in cmd_text
     assert "  throughput \\" in cmd_text

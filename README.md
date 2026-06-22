@@ -72,6 +72,8 @@ uv run auto-bench render examples/decode_sweep.yaml -o artifacts/decode_sweep
 
 For each resolved case, render creates a `cmd.sh`. If the case uses a managed
 config, render also creates a local `config.yaml` next to `cmd.sh`.
+Each `cmd.sh` writes stdout and stderr to `run.log` in the same case directory
+while still streaming output to the terminal.
 
 Generate a starter YAML template:
 

@@ -58,6 +58,9 @@ def _write_run_all(root: Path, cases: list[Any], case_dirs: list[Path]) -> None:
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'LOG_FILE="$SCRIPT_DIR/run.log"',
+        ': > "$LOG_FILE"',
+        'exec > >(tee -a "$LOG_FILE") 2>&1',
         "",
     ]
     for index, case_dir in enumerate(case_dirs):
@@ -84,6 +87,9 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'LOG_FILE="$SCRIPT_DIR/run.log"',
+        ': > "$LOG_FILE"',
+        'exec > >(tee -a "$LOG_FILE") 2>&1',
         "",
     ]
     lines.extend(_environment_lines(case.get("metadata", {})))
