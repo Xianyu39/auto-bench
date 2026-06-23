@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import itertools
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +46,7 @@ class PathOptionResult:
     path: str
     operation_name: str
     operation: dict[str, Any]
+    warnings: tuple[str, ...] = ()
 
 
 def load_experiment(path: str | Path) -> dict[str, Any]:
@@ -65,7 +66,10 @@ def resolve(data: Mapping[str, Any]) -> dict[str, Any]:
     raw = copy.deepcopy(_normalize_top_level(data))
     sweeps = _collect_sweeps(raw)
     cases = [_resolve_case(raw, assignment) for assignment in _assignments(sweeps)]
-    return {"version": "autobench.resolved/v0.1", "cases": cases}
+    warnings = _dedupe_warnings(
+        warning for case in cases for warning in case.get("warnings", [])
+    )
+    return {"version": "autobench.resolved/v0.1", "warnings": warnings, "cases": cases}
 
 
 def dump_yaml(data: Mapping[str, Any]) -> str:
@@ -178,10 +182,12 @@ def _resolve_case(
         )
 
     _apply_defaults(trtllm)
-    _command_entry(trtllm)
+    command_name, command_options = _command_entry(trtllm)
+    warnings = _trtllm_warnings(trtllm, command_name, command_options)
     case_id = _case_id(metadata, assignment)
     runtime = {**RUNTIME_CONTEXT, "case_id": case_id}
-    operations = _resolve_path_options(trtllm)
+    operations, path_option_warnings = _resolve_path_options(trtllm)
+    warnings.extend(path_option_warnings)
     benchmark = _benchmark_command(trtllm)
     _assert_no_unresolved(rendered)
 
@@ -190,6 +196,7 @@ def _resolve_case(
         "metadata": metadata,
         "vars": variables,
         "runtime": runtime,
+        "warnings": _dedupe_warnings(warnings),
         BENCHMARK_SECTION: trtllm,
         "commands": {
             "prepare_dataset": operations.get("prepare_dataset"),
@@ -219,9 +226,11 @@ def _apply_defaults(trtllm: dict[str, Any]) -> None:
 def _command_entry(trtllm: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     command_names = [name for name in trtllm if name in COMMANDS]
     if not command_names:
+        command_names = _unsupported_command_names(trtllm)
+    if not command_names:
         raise ProtocolError(
             f"{BENCHMARK_SECTION}: missing benchmark command section; "
-            f"expected one of {sorted(COMMANDS)}"
+            f"expected one of {sorted(COMMANDS)} or one unsupported command mapping"
         )
     if len(command_names) > 1:
         raise ProtocolError(
@@ -235,6 +244,14 @@ def _command_entry(trtllm: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     return command_name, command_options
 
 
+def _unsupported_command_names(trtllm: Mapping[str, Any]) -> list[str]:
+    return [
+        name
+        for name, value in trtllm.items()
+        if name not in TRTLLM_MANIFEST and isinstance(value, dict)
+    ]
+
+
 def _command_options(trtllm: Mapping[str, Any]) -> dict[str, Any]:
     command_name, command_options = _command_entry(trtllm)
     if not isinstance(command_options, dict):
@@ -242,19 +259,84 @@ def _command_options(trtllm: Mapping[str, Any]) -> dict[str, Any]:
     return command_options
 
 
-def _resolve_path_options(trtllm: dict[str, Any]) -> dict[str, dict[str, Any] | None]:
+def _resolve_path_options(
+    trtllm: dict[str, Any],
+) -> tuple[dict[str, dict[str, Any] | None], list[str]]:
     command_name, command_options = _command_entry(trtllm)
     operations: dict[str, dict[str, Any] | None] = {
         "prepare_dataset": None,
         "write_config": None,
     }
+    warnings: list[str] = []
     for resolver in (_dataset_path_option, _config_path_option):
         result = resolver(trtllm, command_name, command_options)
         if result is None:
             continue
         command_options[result.option_name] = result.path
         operations[result.operation_name] = result.operation
-    return operations
+        warnings.extend(result.warnings)
+    return operations, warnings
+
+
+def _trtllm_warnings(
+    trtllm: Mapping[str, Any],
+    command_name: str,
+    command_options: Mapping[str, Any],
+) -> list[str]:
+    warnings: list[str] = []
+    if command_name not in COMMANDS:
+        warnings.append(
+            _unsupported_warning(
+                f"command '{command_name}'",
+                "This command is not documented for TensorRT-LLM 1.3.0rc13 "
+                "or is not supported by auto-bench yet.",
+            )
+        )
+    for name in trtllm:
+        if name == command_name:
+            continue
+        if name not in TRTLLM_MANIFEST:
+            warnings.append(
+                _unsupported_warning(
+                    f"option '{BENCHMARK_SECTION}.{name}'",
+                    "This option is not documented for TensorRT-LLM 1.3.0rc13 "
+                    "or is not supported by auto-bench yet.",
+                )
+            )
+    for name in command_options:
+        if name not in TRTLLM_MANIFEST:
+            warnings.append(
+                _unsupported_warning(
+                    f"option '{BENCHMARK_SECTION}.{command_name}.{name}'",
+                    "This option is not documented for TensorRT-LLM 1.3.0rc13 "
+                    "or is not supported by auto-bench yet.",
+                )
+            )
+    return warnings
+
+
+def _unsupported_warning(subject: str, detail: str) -> str:
+    return f"Warning: {subject}: {detail}"
+
+
+def _dedupe_warnings(warnings: Iterable[Any]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for warning in warnings:
+        if isinstance(warning, dict):
+            items = warning.get("items")
+            if isinstance(items, list):
+                for item in items:
+                    text = str(item)
+                    if text not in seen:
+                        deduped.append(text)
+                        seen.add(text)
+            continue
+        text = str(warning)
+        if text not in seen:
+            deduped.append(text)
+            seen.add(text)
+    return deduped
 
 
 def _dataset_path_option(
@@ -279,26 +361,36 @@ def _dataset_path_option(
             f"{BENCHMARK_SECTION}.{command_name}.dataset: "
             "managed dataset requires root and generator"
         )
+    warnings: list[str] = []
     generator_args = DATASET_GENERATORS.get(generator)
     if generator_args is None:
-        raise ProtocolError(
-            f"{BENCHMARK_SECTION}.{command_name}.dataset.generator: "
-            f"unsupported {generator!r}"
+        warnings.append(
+            _unsupported_warning(
+                f"dataset generator '{generator}'",
+                "This generator is not documented for TensorRT-LLM 1.3.0rc13 "
+                "or is not supported by auto-bench yet.",
+            )
         )
+        generator_args = {
+            field: field.replace("_", "-")
+            for field in dataset
+            if field not in {"root", "generator"}
+        }
     unknown = set(dataset) - {"root", "generator"} - set(generator_args)
     if unknown:
-        raise ProtocolError(
-            f"{BENCHMARK_SECTION}.{command_name}.dataset: "
-            f"unknown generator args: {sorted(unknown)}"
-        )
+        for field in sorted(unknown):
+            warnings.append(
+                _unsupported_warning(
+                    f"dataset option '{BENCHMARK_SECTION}.{command_name}."
+                    f"dataset.{field}'",
+                    "This dataset option is not documented for TensorRT-LLM "
+                    "1.3.0rc13 or is not supported by auto-bench yet.",
+                )
+            )
+            generator_args[field] = field.replace("_", "-")
 
     model = slug(trtllm.get("model", "model"))
-    filename = (
-        f"{generator}__model={model}"
-        f"__in={dataset.get('input_mean')}_{dataset.get('input_stdev')}"
-        f"__out={dataset.get('output_mean')}_{dataset.get('output_stdev')}"
-        f"__n={dataset.get('num_requests')}.txt"
-    )
+    filename = _dataset_filename(generator, model, dataset)
     output = str(Path(root) / filename)
 
     argv = ["trtllm-bench"]
@@ -314,7 +406,32 @@ def _dataset_path_option(
         path=output,
         operation_name="prepare_dataset",
         operation={"if_missing": True, "output": output, "argv": argv},
+        warnings=tuple(warnings),
     )
+
+
+def _dataset_filename(generator: str, model: str, dataset: Mapping[str, Any]) -> str:
+    token_norm_fields = {
+        "input_mean",
+        "input_stdev",
+        "output_mean",
+        "output_stdev",
+        "num_requests",
+    }
+    if token_norm_fields <= set(dataset):
+        return (
+            f"{generator}__model={model}"
+            f"__in={dataset.get('input_mean')}_{dataset.get('input_stdev')}"
+            f"__out={dataset.get('output_mean')}_{dataset.get('output_stdev')}"
+            f"__n={dataset.get('num_requests')}.txt"
+        )
+    parts = [
+        f"{slug(key)}={slug(value)}"
+        for key, value in sorted(dataset.items())
+        if key not in {"root", "generator"}
+    ]
+    suffix = "__".join(parts) if parts else "default"
+    return f"{generator}__model={model}__{suffix}.txt"
 
 
 def _config_path_option(
@@ -352,7 +469,7 @@ def _benchmark_command(trtllm: Mapping[str, Any]) -> dict[str, list[str]]:
     argv = ["trtllm-bench"]
 
     for name, value in trtllm.items():
-        if name in COMMANDS:
+        if name == command_name or name in COMMANDS:
             continue
         spec = TRTLLM_MANIFEST.get(name)
         argv.extend(

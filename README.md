@@ -39,7 +39,7 @@ auto-bench --version
 ```
 
 如果需要可复现安装，建议把 `@main` 替换成具体 release tag，例如
-`@v0.1.6`。
+`@v0.1.7`。
 
 ## 快速开始
 
@@ -499,6 +499,13 @@ cases:
 
 多 case 的 `run_all.sh` 会按解析顺序执行每个 case 的 `cmd.sh`。如果
 `metadata.gap` 大于 0，会在相邻 case 之间 sleep 对应秒数。
+默认情况下，任意 case 失败都会让 `run_all.sh` 停止。渲染时加
+`--continue-on-error` 可以改为记录失败并继续运行后续 case，脚本最后仍会用
+非零退出码表示至少有一个 case 失败：
+
+```bash
+auto-bench render examples/decode_sweep.yaml -o artifacts/decode_sweep --continue-on-error
+```
 
 ## 收集结果
 
@@ -624,6 +631,16 @@ trtllm-bench \
   --custom_command 42
 ```
 
+这些参数会被保留并渲染，同时 `resolve` / `render` 会在 stderr 和
+`resolved.yaml` 的 `warnings` 字段里提示：
+
+```text
+Warning: option 'trtllm-bench.custom_global': This option is not documented for TensorRT-LLM 1.3.0rc13 or is not supported by auto-bench yet.
+```
+
+未知子命令、未知 dataset generator、未知 dataset generator 参数也采用同样策略：
+给出英文 warning，但继续展开和渲染。
+
 ## 排错
 
 常见错误：
@@ -635,8 +652,6 @@ trtllm-bench \
 - 表达式引用了不存在的路径。
 - 表达式引用了尚未展开的 sweep object。
 - managed dataset 缺少 `root` 或 `generator`。
-- managed dataset 使用了不支持的 generator。
-- managed dataset 写了 generator 不认识的参数。
 - managed config 缺少 `content`，或 `content` 不是 mapping。
 - 解析后仍残留 `${...}`。
 

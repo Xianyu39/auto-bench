@@ -8,12 +8,22 @@ from typing import Any
 from auto_bench.resolver import dump_yaml, resolve_file
 
 
-def render_file(input_path: str | Path, output_dir: str | Path) -> list[Path]:
+def render_file(
+    input_path: str | Path,
+    output_dir: str | Path,
+    *,
+    continue_on_error: bool = False,
+) -> list[Path]:
     resolved = resolve_file(input_path)
-    return render_resolved(resolved, output_dir)
+    return render_resolved(resolved, output_dir, continue_on_error=continue_on_error)
 
 
-def render_resolved(resolved: dict[str, Any], output_dir: str | Path) -> list[Path]:
+def render_resolved(
+    resolved: dict[str, Any],
+    output_dir: str | Path,
+    *,
+    continue_on_error: bool = False,
+) -> list[Path]:
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
     (root / "resolved.yaml").write_text(dump_yaml(resolved), encoding="utf-8")
@@ -34,7 +44,7 @@ def render_resolved(resolved: dict[str, Any], output_dir: str | Path) -> list[Pa
         case_dirs.append(case_dir)
 
     if multi_case:
-        _write_run_all(root, cases, case_dirs)
+        _write_run_all(root, cases, case_dirs, continue_on_error=continue_on_error)
     return case_dirs
 
 
@@ -53,23 +63,55 @@ def _write_case_artifacts(case: dict[str, Any], case_dir: Path) -> None:
     cmd_path.chmod(cmd_path.stat().st_mode | 0o111)
 
 
-def _write_run_all(root: Path, cases: list[Any], case_dirs: list[Path]) -> None:
+def _write_run_all(
+    root: Path,
+    cases: list[Any],
+    case_dirs: list[Path],
+    *,
+    continue_on_error: bool,
+) -> None:
     lines = [
         "#!/usr/bin/env bash",
-        "set -euo pipefail",
+        "set -uo pipefail" if continue_on_error else "set -euo pipefail",
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
         'LOG_FILE="$SCRIPT_DIR/run.log"',
         ': > "$LOG_FILE"',
         'exec > >(tee -a "$LOG_FILE") 2>&1',
         "",
     ]
+    if continue_on_error:
+        lines.extend(
+            [
+                "FAILED=0",
+                "run_case() {",
+                "  local case_name=\"$1\"",
+                "  local case_script=\"$2\"",
+                "  if bash \"$case_script\"; then",
+                "    return 0",
+                "  fi",
+                "  local status=$?",
+                '  echo "auto-bench: case failed: ${case_name} (exit ${status})"',
+                "  FAILED=1",
+                "  return 0",
+                "}",
+                "",
+            ]
+        )
     for index, case_dir in enumerate(case_dirs):
         relative = case_dir.relative_to(root)
-        lines.append(f"bash \"$SCRIPT_DIR/{relative}/cmd.sh\"")
+        if continue_on_error:
+            lines.append(
+                f"run_case {_sh(str(relative))} "
+                f"\"$SCRIPT_DIR/{relative}/cmd.sh\""
+            )
+        else:
+            lines.append(f"bash \"$SCRIPT_DIR/{relative}/cmd.sh\"")
         if index < len(case_dirs) - 1:
             gap = _metadata_gap(cases[index])
             if gap > 0:
                 lines.append(f"sleep {_sh(str(gap))}")
+    if continue_on_error:
+        lines.append('exit "$FAILED"')
     lines.append("")
 
     run_all = root / "run_all.sh"

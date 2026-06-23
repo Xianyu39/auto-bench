@@ -19,16 +19,22 @@ trtllm-bench:
   model_path: /mnt/engines/llama2-7b
 
   throughput:
-    isl:
-      sweep: [128, 256]
-    osl: 64
+    ep: 4
+    tp: 4
+    warmup: 0
+    backend: pytorch
+    max_batch_size: "${vars.batch_size}"
+    max_num_tokens: "${vars.batch_size * trtllm_bench.throughput.dataset.input_mean + 1}"
+    num_requests: 256
+    streaming: null
+    iteration_log: "${runtime.run_dir}/iter.log"
 
     dataset:
       root: /mnt/datasets/autobench
       generator: token_norm_dist
-      num_requests: 100
-      input_mean: "${trtllm_bench.throughput.isl}"
-      output_mean: "${trtllm_bench.throughput.osl}"
+      num_requests: 256
+      input_mean: 1
+      output_mean: 1024
       input_stdev: 0
       output_stdev: 0
 
@@ -37,6 +43,4 @@ trtllm-bench:
         cuda_graph_config:
           enable_padding: true
           batch_sizes: [1, "${vars.batch_size}"]
-
-    max_batch_size: "${vars.batch_size}"
-    max_num_tokens: "${vars.batch_size * trtllm_bench.throughput.osl}"
+        enable_attention_dp: true
