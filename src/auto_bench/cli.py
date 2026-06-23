@@ -7,7 +7,7 @@ from pathlib import Path
 from auto_bench import __version__
 from auto_bench.collector import collect_results, render_results
 from auto_bench.errors import AutobenchError
-from auto_bench.renderer import render_file
+from auto_bench.renderer import render_resolved
 from auto_bench.resolver import dump_yaml, resolve_file
 from auto_bench.templates import TEMPLATES, get_template
 
@@ -47,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("artifacts/rendered"),
         help="Directory for rendered artifacts.",
+    )
+    render_parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help=(
+            "Render run_all.sh so failed cases are logged and later cases still run."
+        ),
     )
 
     collect_parser = subparsers.add_parser(
@@ -103,7 +110,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "resolve":
-            rendered = dump_yaml(resolve_file(args.input))
+            resolved = resolve_file(args.input)
+            _emit_warnings(resolved)
+            rendered = dump_yaml(resolved)
             if args.output is None:
                 sys.stdout.write(rendered)
             else:
@@ -111,7 +120,13 @@ def main(argv: list[str] | None = None) -> int:
                 args.output.write_text(rendered, encoding="utf-8")
             return 0
         if args.command == "render":
-            case_dirs = render_file(args.input, args.output_dir)
+            resolved = resolve_file(args.input)
+            _emit_warnings(resolved)
+            case_dirs = render_resolved(
+                resolved,
+                args.output_dir,
+                continue_on_error=args.continue_on_error,
+            )
             for case_dir in case_dirs:
                 sys.stdout.write(f"{case_dir}\n")
             return 0
@@ -135,3 +150,11 @@ def main(argv: list[str] | None = None) -> int:
     except AutobenchError as exc:
         parser.exit(2, f"auto-bench: error: {exc}\n")
     return 0
+
+
+def _emit_warnings(resolved: dict[str, object]) -> None:
+    warnings = resolved.get("warnings")
+    if not isinstance(warnings, list):
+        return
+    for warning in warnings:
+        sys.stderr.write(f"{warning}\n")

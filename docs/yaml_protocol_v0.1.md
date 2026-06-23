@@ -118,6 +118,11 @@ nvidia-smi -i 0 -lgc 1410,1410
 These metadata fields affect rendered shell scripts only. They are not
 TensorRT-LLM benchmark parameters.
 
+By default, multi-case `run_all.sh` stops on the first failing case. The
+`auto-bench render --continue-on-error` CLI option changes only the rendered
+controller script: it logs failed cases, continues to later cases, and exits
+non-zero if any case failed.
+
 `metadata.env` is a mapping from environment variable names to scalar values.
 The render step writes them before GPU frequency locking and before benchmark
 commands:
@@ -681,6 +686,10 @@ Validation and rendering rules:
 
 - Missing benchmark parameters are not errors at resolver time.
 - Unknown `trtllm-bench` root parameters and subcommand parameters are preserved.
+- Unknown `trtllm-bench` root parameters and subcommand parameters emit English
+  warnings in the resolved output and CLI stderr.
+- Unknown command sections are preserved and rendered as the benchmark
+  subcommand, with an English warning.
 - Unknown parameters are rendered as `--<yaml_key>`.
 - Known parameters use their manifest CLI spelling when one is defined.
 - Input `<command>.dataset` may be a managed dataset object, but resolved
@@ -688,7 +697,8 @@ Validation and rendering rules:
 - Input `<command>.config` may be absent, `null`, a user-managed path, or a
   managed config object. Resolved `<command>.config` must be `null` or a string
   path.
-- Managed dataset generator arguments must be known for the selected generator.
+- Unknown managed dataset generators and generator arguments emit English
+  warnings, but are preserved and rendered.
 - Managed dataset filenames must be deterministic for the resolved generator
   fields.
 - Managed config content must be a YAML mapping.

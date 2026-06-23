@@ -46,6 +46,27 @@ def test_render_multi_case_directories_and_run_all(tmp_path: Path) -> None:
     assert "sleep 15" in run_all
 
 
+def test_render_run_all_can_continue_on_error(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"].append(
+        {
+            **payload["cases"][0],
+            "case_id": "case_two",
+        }
+    )
+
+    render_resolved(payload, tmp_path, continue_on_error=True)
+
+    run_all = (tmp_path / "run_all.sh").read_text()
+    assert "set -uo pipefail" in run_all
+    assert "set -euo pipefail" not in run_all
+    assert "FAILED=0" in run_all
+    assert 'echo "auto-bench: case failed: ${case_name} (exit ${status})"' in run_all
+    assert 'run_case case_one "$SCRIPT_DIR/case_one/cmd.sh"' in run_all
+    assert 'run_case case_two "$SCRIPT_DIR/case_two/cmd.sh"' in run_all
+    assert 'exit "$FAILED"' in run_all
+
+
 def test_render_gpu_frequency_lock(tmp_path: Path) -> None:
     payload = _resolved_payload()
     payload["cases"][0]["metadata"]["gpu_frequency"] = {

@@ -137,10 +137,71 @@ def test_unknown_trtllm_parameters_are_preserved_and_rendered() -> None:
     argv = case["commands"]["benchmark"]["argv"]
     assert case["trtllm-bench"]["custom_global"] == "root-value"
     assert case["trtllm-bench"]["throughput"]["custom_command"] == 42
+    assert result["warnings"] == [
+        "Warning: option 'trtllm-bench.custom_global': This option is not "
+        "documented for TensorRT-LLM 1.3.0rc13 or is not supported by "
+        "auto-bench yet.",
+        "Warning: option 'trtllm-bench.throughput.custom_command': This option "
+        "is not documented for TensorRT-LLM 1.3.0rc13 or is not supported by "
+        "auto-bench yet.",
+    ]
     assert argv[argv.index("--custom_global") + 1] == "root-value"
     assert argv[argv.index("--custom_command") + 1] == "42"
     assert argv.index("--custom_global") < argv.index("throughput")
     assert argv.index("--custom_command") > argv.index("throughput")
+
+
+def test_unknown_command_is_preserved_with_warning() -> None:
+    result = resolve(
+        {
+            "metadata": {"name": "custom_command"},
+            "trtllm-bench": {
+                "model": "llama",
+                "profile": {
+                    "dataset": "/datasets/static.txt",
+                    "max_batch_size": 1,
+                },
+            },
+        }
+    )
+
+    case = result["cases"][0]
+    argv = case["commands"]["benchmark"]["argv"]
+    assert result["warnings"] == [
+        "Warning: command 'profile': This command is not documented for "
+        "TensorRT-LLM 1.3.0rc13 or is not supported by auto-bench yet."
+    ]
+    assert "profile" in argv
+    assert "--model" in argv
+    assert "--dataset" in argv
+
+
+def test_unknown_dataset_generator_args_warn_and_render() -> None:
+    result = resolve(
+        {
+            "metadata": {"name": "custom_dataset"},
+            "trtllm-bench": {
+                "model": "llama",
+                "throughput": {
+                    "dataset": {
+                        "root": "/datasets",
+                        "generator": "my_generator",
+                        "custom_arg": 7,
+                    },
+                },
+            },
+        }
+    )
+
+    case = result["cases"][0]
+    prepare = case["commands"]["prepare_dataset"]["argv"]
+    assert result["warnings"] == [
+        "Warning: dataset generator 'my_generator': This generator is not "
+        "documented for TensorRT-LLM 1.3.0rc13 or is not supported by "
+        "auto-bench yet."
+    ]
+    assert "my_generator" in prepare
+    assert prepare[prepare.index("--custom-arg") + 1] == "7"
 
 
 def test_runtime_variables_are_available_to_expressions() -> None:
