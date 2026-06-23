@@ -4,6 +4,8 @@ version = "0.1.6"
 description = "Automated TensorRT-LLM benchmark experiment orchestration"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "auto-bench contributors" }]
 keywords = ["benchmark", "tensorrt-llm", "llm", "gpu", "performance"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -20,6 +22,12 @@ dependencies = [
     "pydantic>=2.13.4",
     "ruamel-yaml>=0.19.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Xianyu39/auto-bench"
+Repository = "https://github.com/Xianyu39/auto-bench"
+Issues = "https://github.com/Xianyu39/auto-bench/issues"
+Documentation = "https://github.com/Xianyu39/auto-bench#readme"
 
 [project.scripts]
 auto-bench = "auto_bench.cli:main"

@@ -1,5 +1,8 @@
 # auto-bench
 
+[![CI](https://github.com/Xianyu39/auto-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/Xianyu39/auto-bench/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 `auto-bench` 是一个面向 TensorRT-LLM benchmark 的实验编排工具。它用一份
 YAML 描述实验矩阵、变量 sweep、派生参数、数据集生成和 `config.yaml`，再把
 这些内容解析成可执行的 `trtllm-bench` 命令脚本。
@@ -75,10 +78,10 @@ artifacts/my_decode/
 artifacts/my_decode/
   resolved.yaml
   run_all.sh
-  decode_sweep__vars.batch_size=1__trtllm.throughput.isl=128/
+  decode_sweep__vars.batch_size=1__trtllm-bench.throughput.isl=128/
     cmd.sh
     config.yaml
-  decode_sweep__vars.batch_size=1__trtllm.throughput.isl=256/
+  decode_sweep__vars.batch_size=1__trtllm-bench.throughput.isl=256/
     cmd.sh
     config.yaml
 ```
@@ -86,7 +89,7 @@ artifacts/my_decode/
 运行单个 case：
 
 ```bash
-bash artifacts/my_decode/decode_sweep__vars.batch_size=1__trtllm.throughput.isl=128/cmd.sh
+bash artifacts/my_decode/decode_sweep__vars.batch_size=1__trtllm-bench.throughput.isl=128/cmd.sh
 ```
 
 运行全部 case：
@@ -447,7 +450,7 @@ auto-bench resolve examples/decode_sweep.yaml -o artifacts/decode_resolved.yaml
 ```yaml
 version: autobench.resolved/v0.1
 cases:
-  - case_id: decode_sweep__vars.batch_size=1__trtllm.throughput.isl=128
+  - case_id: decode_sweep__vars.batch_size=1__trtllm-bench.throughput.isl=128
     metadata: ...
     vars: ...
     runtime: ...
@@ -681,8 +684,6 @@ uv run auto-bench template prefill -o examples/my_prefill.yaml
 
 更底层的协议定义见 [YAML protocol v0.1](docs/yaml_protocol_v0.1.md)。
 
-## Release Notes
+## 许可证
 
-This project is installable from GitHub as a Python package. Before making the
-repository public, choose and add an open-source license. After adding a
-license, also add the matching `license` metadata to `pyproject.toml`.
+本项目使用 [MIT License](LICENSE)。
