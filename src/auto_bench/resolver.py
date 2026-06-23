@@ -29,6 +29,9 @@ RUNTIME_CONTEXT = {
     "config_path": "$SCRIPT_DIR/config.yaml",
     "dataset_dir": "$SCRIPT_DIR/datasets",
 }
+BENCHMARK_SECTION = "trtllm-bench"
+LEGACY_BENCHMARK_SECTION = "trtllm"
+BENCHMARK_EXPR_NAME = "trtllm_bench"
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,7 @@ def resolve_file(path: str | Path) -> dict[str, Any]:
 
 def resolve(data: Mapping[str, Any]) -> dict[str, Any]:
     _validate_top_level(data)
-    raw = copy.deepcopy(dict(data))
+    raw = copy.deepcopy(_normalize_top_level(data))
     sweeps = _collect_sweeps(raw)
     cases = [_resolve_case(raw, assignment) for assignment in _assignments(sweeps)]
     return {"version": "autobench.resolved/v0.1", "cases": cases}
@@ -74,20 +77,41 @@ def dump_yaml(data: Mapping[str, Any]) -> str:
 
 
 def _validate_top_level(data: Mapping[str, Any]) -> None:
-    allowed = {"metadata", "vars", "trtllm"}
+    allowed = {"metadata", "vars", BENCHMARK_SECTION, LEGACY_BENCHMARK_SECTION}
     actual = set(data)
     unknown = actual - allowed
     if unknown:
         raise ProtocolError(f"root: unknown top-level sections: {sorted(unknown)}")
-    missing = {"metadata", "trtllm"} - actual
+    if BENCHMARK_SECTION in data and LEGACY_BENCHMARK_SECTION in data:
+        raise ProtocolError(
+            f"root: use only one of {BENCHMARK_SECTION!r} or "
+            f"{LEGACY_BENCHMARK_SECTION!r}"
+        )
+    missing = {"metadata"} - actual
+    if BENCHMARK_SECTION not in data and LEGACY_BENCHMARK_SECTION not in data:
+        missing.add(BENCHMARK_SECTION)
     if missing:
         raise ProtocolError(f"root: missing top-level sections: {sorted(missing)}")
     if not isinstance(data["metadata"], dict):
         raise ProtocolError("metadata: expected a mapping")
-    if not isinstance(data["trtllm"], dict):
-        raise ProtocolError("trtllm: expected a mapping")
+    benchmark_section = _benchmark_section(data)
+    if not isinstance(data[benchmark_section], dict):
+        raise ProtocolError(f"{benchmark_section}: expected a mapping")
     if "vars" in data and not isinstance(data["vars"], dict):
         raise ProtocolError("vars: expected a mapping")
+
+
+def _normalize_top_level(data: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = dict(data)
+    if LEGACY_BENCHMARK_SECTION in normalized:
+        normalized[BENCHMARK_SECTION] = normalized.pop(LEGACY_BENCHMARK_SECTION)
+    return normalized
+
+
+def _benchmark_section(data: Mapping[str, Any]) -> str:
+    if BENCHMARK_SECTION in data:
+        return BENCHMARK_SECTION
+    return LEGACY_BENCHMARK_SECTION
 
 
 def _collect_sweeps(data: Mapping[str, Any]) -> list[SweepField]:
@@ -112,7 +136,7 @@ def _collect_sweeps(data: Mapping[str, Any]) -> list[SweepField]:
     walk(data["metadata"], ("metadata",))
     if "vars" in data:
         walk(data["vars"], ("vars",))
-    walk(data["trtllm"], ("trtllm",))
+    walk(data[BENCHMARK_SECTION], (BENCHMARK_SECTION,))
     return fields
 
 
@@ -136,20 +160,21 @@ def _resolve_case(
     context = {
         "metadata": case_data["metadata"],
         "vars": case_data.get("vars", {}),
-        "trtllm": case_data["trtllm"],
+        BENCHMARK_EXPR_NAME: case_data[BENCHMARK_SECTION],
+        LEGACY_BENCHMARK_SECTION: case_data[BENCHMARK_SECTION],
         "runtime": RUNTIME_CONTEXT,
     }
     rendered = render_value(case_data, context, "")
     metadata = rendered["metadata"]
     variables = rendered.get("vars", {})
-    trtllm = rendered["trtllm"]
+    trtllm = rendered[BENCHMARK_SECTION]
     if (
         not isinstance(metadata, dict)
         or not isinstance(variables, dict)
         or not isinstance(trtllm, dict)
     ):
         raise ProtocolError(
-            "resolved case: metadata, vars, and trtllm must be mappings"
+            f"resolved case: metadata, vars, and {BENCHMARK_SECTION} must be mappings"
         )
 
     _apply_defaults(trtllm)
@@ -165,7 +190,7 @@ def _resolve_case(
         "metadata": metadata,
         "vars": variables,
         "runtime": runtime,
-        "trtllm": trtllm,
+        BENCHMARK_SECTION: trtllm,
         "commands": {
             "prepare_dataset": operations.get("prepare_dataset"),
             "write_config": operations.get("write_config"),
@@ -195,25 +220,25 @@ def _command_entry(trtllm: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     command_names = [name for name in trtllm if name in COMMANDS]
     if not command_names:
         raise ProtocolError(
-            "trtllm: missing benchmark command section; "
+            f"{BENCHMARK_SECTION}: missing benchmark command section; "
             f"expected one of {sorted(COMMANDS)}"
         )
     if len(command_names) > 1:
         raise ProtocolError(
-            "trtllm: exactly one benchmark command section is allowed, "
+            f"{BENCHMARK_SECTION}: exactly one benchmark command section is allowed, "
             f"got {command_names}"
         )
     command_name = command_names[0]
     command_options = trtllm[command_name]
     if not isinstance(command_options, dict):
-        raise ProtocolError(f"trtllm.{command_name}: expected a mapping")
+        raise ProtocolError(f"{BENCHMARK_SECTION}.{command_name}: expected a mapping")
     return command_name, command_options
 
 
 def _command_options(trtllm: Mapping[str, Any]) -> dict[str, Any]:
     command_name, command_options = _command_entry(trtllm)
     if not isinstance(command_options, dict):
-        raise ProtocolError(f"trtllm.{command_name}: expected a mapping")
+        raise ProtocolError(f"{BENCHMARK_SECTION}.{command_name}: expected a mapping")
     return command_options
 
 
@@ -244,24 +269,27 @@ def _dataset_path_option(
         return None
     if not isinstance(dataset, dict):
         raise ProtocolError(
-            f"trtllm.{command_name}.dataset: expected path string or managed object"
+            f"{BENCHMARK_SECTION}.{command_name}.dataset: "
+            "expected path string or managed object"
         )
     root = dataset.get("root")
     generator = dataset.get("generator")
     if not isinstance(root, str) or not isinstance(generator, str):
         raise ProtocolError(
-            f"trtllm.{command_name}.dataset: "
+            f"{BENCHMARK_SECTION}.{command_name}.dataset: "
             "managed dataset requires root and generator"
         )
     generator_args = DATASET_GENERATORS.get(generator)
     if generator_args is None:
         raise ProtocolError(
-            f"trtllm.{command_name}.dataset.generator: unsupported {generator!r}"
+            f"{BENCHMARK_SECTION}.{command_name}.dataset.generator: "
+            f"unsupported {generator!r}"
         )
     unknown = set(dataset) - {"root", "generator"} - set(generator_args)
     if unknown:
         raise ProtocolError(
-            f"trtllm.{command_name}.dataset: unknown generator args: {sorted(unknown)}"
+            f"{BENCHMARK_SECTION}.{command_name}.dataset: "
+            f"unknown generator args: {sorted(unknown)}"
         )
 
     model = slug(trtllm.get("model", "model"))
@@ -301,13 +329,14 @@ def _config_path_option(
         return None
     if not isinstance(config, dict):
         raise ProtocolError(
-            f"trtllm.{command_name}.config: "
+            f"{BENCHMARK_SECTION}.{command_name}.config: "
             "expected path string, null, or managed object"
         )
     content = config.get("content")
     if not isinstance(content, dict):
         raise ProtocolError(
-            f"trtllm.{command_name}.config: managed config requires mapping content"
+            f"{BENCHMARK_SECTION}.{command_name}.config: "
+            "managed config requires mapping content"
         )
     path = "config.yaml"
     return PathOptionResult(

@@ -107,7 +107,7 @@ def _resolved_payload() -> dict:
             {
                 "case_id": "case_one",
                 "metadata": {"name": "case_one"},
-                "trtllm": {
+                "trtllm-bench": {
                     "model": "llama",
                     "dataset": "/datasets/data.txt",
                     "config": {

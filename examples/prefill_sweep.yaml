@@ -13,7 +13,7 @@ vars:
   batch_size:
     sweep: [1, 2, 4, 8, 16, 32]
 
-trtllm:
+trtllm-bench:
   model: meta-llama/Llama-2-7b-hf
   model_path: /mnt/engines/llama2-7b
 
@@ -23,7 +23,7 @@ trtllm:
     warmup: 0
     backend: pytorch
     max_batch_size: "${vars.batch_size}"
-    max_num_tokens: "${vars.batch_size * trtllm.throughput.dataset.input_mean + 1}"
+    max_num_tokens: "${vars.batch_size * trtllm_bench.throughput.dataset.input_mean + 1}"
     num_requests: 256
     streaming: null
     iteration_log: "${runtime.run_dir}/iter.log"

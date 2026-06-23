@@ -12,7 +12,7 @@ def test_cli_version(capsys) -> None:
         main(["--version"])
     except SystemExit as exc:
         assert exc.code == 0
-    assert "auto-bench 0.1.5" in capsys.readouterr().out
+    assert "auto-bench 0.1.6" in capsys.readouterr().out
 
 
 def test_cli_template_stdout(capsys) -> None:
@@ -31,10 +31,10 @@ def test_prefill_template_resolves() -> None:
     case = result["cases"][0]
     assert len(result["cases"]) == 6
     assert case["metadata"]["gpu_frequency"]["min_mhz"] == 1400
-    assert case["trtllm"]["throughput"]["tp"] == 4
-    assert case["trtllm"]["throughput"]["backend"] == "pytorch"
-    assert case["trtllm"]["throughput"]["max_num_tokens"] == 1025
-    assert case["trtllm"]["throughput"]["iteration_log"] == "$SCRIPT_DIR/iter.log"
+    assert case["trtllm-bench"]["throughput"]["tp"] == 4
+    assert case["trtllm-bench"]["throughput"]["backend"] == "pytorch"
+    assert case["trtllm-bench"]["throughput"]["max_num_tokens"] == 1025
+    assert case["trtllm-bench"]["throughput"]["iteration_log"] == "$SCRIPT_DIR/iter.log"
 
 
 def test_cli_template_output_file(tmp_path) -> None:

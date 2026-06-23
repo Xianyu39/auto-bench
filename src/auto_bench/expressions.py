@@ -94,7 +94,7 @@ def _eval(node: ast.AST, context: Mapping[str, Any], path: str) -> Any:
         raise ProtocolError(f"{path}: unknown name {node.id!r}")
     if isinstance(node, ast.Attribute):
         root, attrs = _attribute_path(node)
-        if root not in {"metadata", "trtllm", "vars", "runtime"}:
+        if root not in {"metadata", "trtllm_bench", "trtllm", "vars", "runtime"}:
             raise ProtocolError(f"{path}: invalid reference root {root!r}")
         return _resolve_path(context[root], attrs, path)
     if isinstance(node, ast.BinOp):

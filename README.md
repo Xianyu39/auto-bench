@@ -36,7 +36,7 @@ auto-bench --version
 ```
 
 如果需要可复现安装，建议把 `@main` 替换成具体 release tag，例如
-`@v0.1.5`。
+`@v0.1.6`。
 
 ## 快速开始
 
@@ -119,7 +119,7 @@ vars:
   batch_size:
     sweep: [1, 4]
 
-trtllm:
+trtllm-bench:
   model: meta-llama/Llama-2-7b-hf
   model_path: /mnt/engines/llama2-7b
   throughput:
@@ -130,8 +130,8 @@ trtllm:
       root: /mnt/datasets/autobench
       generator: token_norm_dist
       num_requests: 100
-      input_mean: "${trtllm.throughput.isl}"
-      output_mean: "${trtllm.throughput.osl}"
+      input_mean: "${trtllm_bench.throughput.isl}"
+      output_mean: "${trtllm_bench.throughput.osl}"
       input_stdev: 0
       output_stdev: 0
     config:
@@ -140,10 +140,10 @@ trtllm:
           enable_padding: true
           batch_sizes: [1, "${vars.batch_size}"]
     max_batch_size: "${vars.batch_size}"
-    max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
+    max_num_tokens: "${vars.batch_size * trtllm_bench.throughput.osl}"
 ```
 
-`metadata` 和 `trtllm` 是必填 section，`vars` 可选。顶层不允许其它 section。
+`metadata` 和 `trtllm-bench` 是必填 section，`vars` 可选。顶层不允许其它 section。
 
 ### metadata
 
@@ -204,20 +204,20 @@ vars:
 引用方式：
 
 ```yaml
-trtllm:
+trtllm-bench:
   throughput:
     max_batch_size: "${vars.batch_size}"
-    max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
+    max_num_tokens: "${vars.batch_size * trtllm_bench.throughput.osl}"
 ```
 
-### trtllm
+### trtllm-bench
 
-`trtllm` 是映射到 `trtllm-bench` 的主体配置。
+`trtllm-bench` 是映射到 `trtllm-bench` 的主体配置。
 
-`trtllm` 根下的普通字段会渲染在子命令之前，作为全局参数：
+`trtllm-bench` 根下的普通字段会渲染在子命令之前，作为全局参数：
 
 ```yaml
-trtllm:
+trtllm-bench:
   model: meta-llama/Llama-2-7b-hf
   model_path: /mnt/engines/llama2-7b
 ```
@@ -231,7 +231,7 @@ trtllm-bench \
   throughput ...
 ```
 
-`trtllm` 中必须且只能出现一个 benchmark 子命令 section。目前支持：
+`trtllm-bench` 中必须且只能出现一个 benchmark 子命令 section。目前支持：
 
 - `throughput`
 - `latency`
@@ -240,7 +240,7 @@ trtllm-bench \
 子命令 section 下的普通字段会渲染在子命令之后：
 
 ```yaml
-trtllm:
+trtllm-bench:
   model: llama
   throughput:
     max_batch_size: 4
@@ -257,7 +257,7 @@ trtllm-bench \
   --warmup 5
 ```
 
-未知的 `trtllm` 参数不会被丢弃，会按 YAML key 原样渲染为 `--<key>`。例如
+未知的 `trtllm-bench` 参数不会被丢弃，会按 YAML key 原样渲染为 `--<key>`。例如
 `custom_command: 42` 会渲染为 `--custom_command 42`。已知参数可能会使用
 manifest 中定义的 CLI 拼写，例如 `iteration_log` 会渲染为
 `--iteration_log`。
@@ -271,14 +271,14 @@ manifest 中定义的 CLI 拼写，例如 `iteration_log` 会渲染为
 
 ## Sweep 与表达式
 
-任意 `metadata`、`vars`、`trtllm` 下的字段都可以写成 sweep：
+任意 `metadata`、`vars`、`trtllm-bench` 下的字段都可以写成 sweep：
 
 ```yaml
 vars:
   batch_size:
     sweep: [1, 4]
 
-trtllm:
+trtllm-bench:
   throughput:
     isl:
       sweep: [128, 256]
@@ -294,7 +294,7 @@ trtllm:
 表达式使用 `${...}`：
 
 ```yaml
-max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
+max_num_tokens: "${vars.batch_size * trtllm_bench.throughput.osl}"
 ```
 
 如果整个 YAML 值就是一个表达式，解析结果会保留原始类型。上例解析后是数字，
@@ -303,7 +303,7 @@ max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
 字符串插值也支持：
 
 ```yaml
-dataset: "/data/i${trtllm.throughput.isl}_o${trtllm.throughput.osl}.txt"
+dataset: "/data/i${trtllm_bench.throughput.isl}_o${trtllm_bench.throughput.osl}.txt"
 ```
 
 字符串插值的结果始终是字符串。
@@ -312,7 +312,7 @@ dataset: "/data/i${trtllm.throughput.isl}_o${trtllm.throughput.osl}.txt"
 
 - `metadata.<path>`
 - `vars.<path>`
-- `trtllm.<path>`
+- `trtllm_bench.<path>`
 - `runtime.<path>`
 
 内置 `runtime` 值：
@@ -338,7 +338,7 @@ dataset: "/data/i${trtllm.throughput.isl}_o${trtllm.throughput.osl}.txt"
 第一种是用户自己准备好的数据集路径：
 
 ```yaml
-trtllm:
+trtllm-bench:
   model: llama
   throughput:
     dataset: /mnt/datasets/static.txt
@@ -350,15 +350,15 @@ trtllm:
 第二种是 managed dataset，由 auto-bench 按需生成：
 
 ```yaml
-trtllm:
+trtllm-bench:
   model: meta-llama/Llama-2-7b-hf
   throughput:
     dataset:
       root: /mnt/datasets/autobench
       generator: token_norm_dist
       num_requests: 100
-      input_mean: "${trtllm.throughput.isl}"
-      output_mean: "${trtllm.throughput.osl}"
+      input_mean: "${trtllm_bench.throughput.isl}"
+      output_mean: "${trtllm_bench.throughput.osl}"
       input_stdev: 0
       output_stdev: 0
 ```
@@ -402,7 +402,7 @@ prepare-dataset 发生在 benchmark 命令之前，不属于 benchmark 测量区
 第一种是用户自己维护的 config 文件路径：
 
 ```yaml
-trtllm:
+trtllm-bench:
   throughput:
     config: /mnt/configs/static.yaml
 ```
@@ -413,7 +413,7 @@ trtllm:
 第二种是 managed config：
 
 ```yaml
-trtllm:
+trtllm-bench:
   throughput:
     config:
       content:
@@ -451,7 +451,7 @@ cases:
     metadata: ...
     vars: ...
     runtime: ...
-    trtllm: ...
+    trtllm-bench: ...
     commands:
       prepare_dataset: ...
       write_config: ...
@@ -469,7 +469,7 @@ cases:
 
 - `case_id`：稳定的 case 名称，也用于多 case 渲染时的目录名。
 - `runtime`：脚本运行时路径。
-- `trtllm`：展开 sweep 和表达式后的配置，便于审计。
+- `trtllm-bench`：展开 sweep 和表达式后的配置，便于审计。
 - `commands.prepare_dataset`：managed dataset 的准备命令；非 managed dataset 时为 `null`。
 - `commands.write_config`：managed config 的写文件计划；用户自管 config 或无 config 时为 `null`。
 - `commands.benchmark.argv`：最终 benchmark 命令的 argv 列表。
@@ -561,7 +561,7 @@ auto-bench render examples/decode_sweep.yaml -o artifacts/decode_sweep
 bash artifacts/decode_sweep/run_all.sh
 ```
 
-它会 sweep `vars.batch_size` 和 `trtllm.throughput.isl`，并用表达式计算
+它会 sweep `vars.batch_size` 和 `trtllm-bench.throughput.isl`，并用表达式计算
 `max_batch_size`、`max_num_tokens` 和数据集长度。
 
 ### Prefill sweep
@@ -582,7 +582,7 @@ prefill 示例主要 sweep batch size，并展示了 `ep`、`tp`、`warmup`、
 如果希望数据集放在每个 case 目录下，可以使用 `runtime.dataset_dir`：
 
 ```yaml
-trtllm:
+trtllm-bench:
   model: llama
   throughput:
     dataset:
@@ -599,10 +599,10 @@ trtllm:
 
 ### 传递尚未内置到 manifest 的 TensorRT-LLM 参数
 
-直接写在 `trtllm` 根或子命令下即可：
+直接写在 `trtllm-bench` 根或子命令下即可：
 
 ```yaml
-trtllm:
+trtllm-bench:
   model: llama
   custom_global: root-value
   throughput:
@@ -625,8 +625,8 @@ trtllm-bench \
 
 常见错误：
 
-- 顶层 section 写错：只允许 `metadata`、`vars`、`trtllm`。
-- 缺少 `metadata` 或 `trtllm`。
+- 顶层 section 写错：只允许 `metadata`、`vars`、`trtllm-bench`。
+- 缺少 `metadata` 或 `trtllm-bench`。
 - 同时写了多个子命令，例如同时存在 `throughput` 和 `latency`。
 - `sweep` 不是非空 list。
 - 表达式引用了不存在的路径。

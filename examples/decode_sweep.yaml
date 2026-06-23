@@ -14,7 +14,7 @@ vars:
   batch_size:
     sweep: [1, 4]
 
-trtllm:
+trtllm-bench:
   model: meta-llama/Llama-2-7b-hf
   model_path: /mnt/engines/llama2-7b
 
@@ -27,8 +27,8 @@ trtllm:
       root: /mnt/datasets/autobench
       generator: token_norm_dist
       num_requests: 100
-      input_mean: "${trtllm.throughput.isl}"
-      output_mean: "${trtllm.throughput.osl}"
+      input_mean: "${trtllm_bench.throughput.isl}"
+      output_mean: "${trtllm_bench.throughput.osl}"
       input_stdev: 0
       output_stdev: 0
 
@@ -39,4 +39,4 @@ trtllm:
           batch_sizes: [1, "${vars.batch_size}"]
 
     max_batch_size: "${vars.batch_size}"
-    max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
+    max_num_tokens: "${vars.batch_size * trtllm_bench.throughput.osl}"

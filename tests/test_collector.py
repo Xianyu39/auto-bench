@@ -137,7 +137,7 @@ def _case(case_id: str, batch_size: int) -> dict:
         "case_id": case_id,
         "metadata": {"name": "collect", "tags": ["test"]},
         "vars": {"batch_size": batch_size},
-        "trtllm": {"model": "llama"},
+        "trtllm-bench": {"model": "llama"},
         "commands": {
             "prepare_dataset": None,
             "write_config": None,
