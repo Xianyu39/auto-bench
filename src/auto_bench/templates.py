@@ -30,7 +30,7 @@ def minimal_template() -> dict[str, Any]:
                 "max_num_tokens": "${vars.batch_size * trtllm.throughput.osl}",
                 "dataset": {
                     "root": "/mnt/datasets/autobench",
-                    "generator": "token-norm-dist",
+                    "generator": "token_norm_dist",
                     "num_requests": 100,
                     "input_mean": "${trtllm.throughput.isl}",
                     "output_mean": "${trtllm.throughput.osl}",
@@ -105,7 +105,7 @@ def prefill_template() -> dict[str, Any]:
                 "iteration_log": "${runtime.run_dir}/iter.log",
                 "dataset": {
                     "root": "/mnt/datasets/autobench",
-                    "generator": "token-norm-dist",
+                    "generator": "token_norm_dist",
                     "num_requests": 256,
                     "input_mean": 1024,
                     "output_mean": 1024,

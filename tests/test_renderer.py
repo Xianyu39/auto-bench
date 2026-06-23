@@ -128,7 +128,7 @@ def _resolved_payload() -> dict:
                             "prepare-dataset",
                             "--output",
                             "/datasets/data.txt",
-                            "token-norm-dist",
+                            "token_norm_dist",
                         ],
                     },
                     "write_config": {

@@ -19,10 +19,11 @@ def test_resolve_sweeps_dataset_config_and_commands() -> None:
                 "throughput": {
                     "isl": {"sweep": [128, 256]},
                     "osl": 64,
-                    "iteration_log": None,
+                    "streaming": None,
+                    "iteration_log": "/logs/iter.json",
                     "dataset": {
                         "root": "/datasets",
-                        "generator": "token-norm-dist",
+                        "generator": "token_norm_dist",
                         "num_requests": 100,
                         "input_mean": "${trtllm.throughput.isl}",
                         "output_mean": "${trtllm.throughput.osl}",
@@ -68,7 +69,8 @@ def test_resolve_sweeps_dataset_config_and_commands() -> None:
     argv = case["commands"]["benchmark"]["argv"]
     assert argv.index("--model_path") < argv.index("throughput")
     assert argv.index("--isl") > argv.index("throughput")
-    assert argv[argv.index("--iteration-log")] == "--iteration-log"
+    assert argv[argv.index("--iteration_log") + 1] == "/logs/iter.json"
+    assert argv[argv.index("--streaming")] == "--streaming"
 
 
 def test_user_managed_dataset_and_config_path() -> None:
@@ -129,7 +131,7 @@ def test_runtime_variables_are_available_to_expressions() -> None:
                 "throughput": {
                     "dataset": {
                         "root": "${runtime.dataset_dir}",
-                        "generator": "token-norm-dist",
+                        "generator": "token_norm_dist",
                         "num_requests": 8,
                         "input_mean": 16,
                         "output_mean": 4,
@@ -154,7 +156,7 @@ def test_runtime_variables_are_available_to_expressions() -> None:
     }
     assert case["trtllm"]["run_dir_marker"] == "$SCRIPT_DIR"
     assert case["trtllm"]["throughput"]["dataset"].startswith(
-        "$SCRIPT_DIR/datasets/token-norm-dist__"
+        "$SCRIPT_DIR/datasets/token_norm_dist__"
     )
     assert argv[argv.index("--run_dir_marker") + 1] == "$SCRIPT_DIR"
     assert argv[argv.index("--log_path") + 1] == "$SCRIPT_DIR/run.log"

@@ -25,7 +25,7 @@ trtllm:
 
     dataset:
       root: /mnt/datasets/autobench
-      generator: token-norm-dist
+      generator: token_norm_dist
       num_requests: 100
       input_mean: "${trtllm.throughput.isl}"
       output_mean: "${trtllm.throughput.osl}"

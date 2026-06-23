@@ -62,7 +62,7 @@ trtllm:
     max_num_tokens: "${vars.batch_size * trtllm.throughput.osl}"
     dataset:
       root: /data/autobench/datasets
-      generator: token-norm-dist
+      generator: token_norm_dist
       num_requests: 1000
       input_mean: "${trtllm.throughput.isl}"
       output_mean: "${trtllm.throughput.osl}"
@@ -201,13 +201,13 @@ example:
 
 ```yaml
 trtllm:
-  iteration_log: null
+  streaming: null
 ```
 
 renders as:
 
 ```bash
---iteration-log
+--streaming
 ```
 
 Omit the field entirely when the flag should not be rendered.
@@ -269,7 +269,7 @@ trtllm:
     osl: 128
     dataset:
       root: /data/autobench/datasets
-      generator: token-norm-dist
+      generator: token_norm_dist
       num_requests: 1000
       input_mean: "${trtllm.throughput.isl}"
       output_mean: "${trtllm.throughput.osl}"
@@ -281,10 +281,10 @@ Required managed dataset fields:
 
 - `root`: directory where autobench stores generated datasets.
 - `generator`: TensorRT-LLM dataset generator name. v0.1 supports
-  `token-norm-dist`.
+  `dataset`, `token_norm_dist`, and `token_unif_dist`.
 
 Generator arguments are written as fields in the dataset object. For
-`token-norm-dist`, common arguments are:
+`token_norm_dist`, common arguments are:
 
 - `num_requests`
 - `input_mean`
@@ -302,7 +302,7 @@ dataset fields. The recommended filename format is:
 Example:
 
 ```text
-/data/autobench/datasets/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
+/data/autobench/datasets/token_norm_dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
 ```
 
 The filename must include every generator argument that can change dataset
@@ -388,7 +388,7 @@ trtllm:
     osl: 128
     dataset:
       root: "${runtime.dataset_dir}"
-      generator: token-norm-dist
+      generator: token_norm_dist
       num_requests: 1000
       input_mean: "${trtllm.throughput.isl}"
       output_mean: "${trtllm.throughput.osl}"
@@ -644,15 +644,15 @@ Example:
 commands:
   prepare_dataset:
     if_missing: true
-    output: /data/autobench/datasets/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
+    output: /data/autobench/datasets/token_norm_dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
     argv:
       - trtllm-bench
       - --model
       - meta-llama/Llama-2-7b-hf
       - prepare-dataset
       - --output
-      - /data/autobench/datasets/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
-      - token-norm-dist
+      - /data/autobench/datasets/token_norm_dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
+      - token_norm_dist
       - --num-requests
       - "1000"
       - --input-mean
@@ -756,7 +756,7 @@ trtllm:
 
     dataset:
       root: /mnt/datasets/autobench
-      generator: token-norm-dist
+      generator: token_norm_dist
       num_requests: 1000
       input_mean: "${trtllm.throughput.isl}"
       output_mean: "${trtllm.throughput.osl}"
@@ -815,7 +815,7 @@ cases:
         isl: 128
         osl: 128
         kv_cache_dtype: fp8
-        dataset: /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
+        dataset: /mnt/datasets/autobench/token_norm_dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
         config: config.yaml
         max_batch_size: 4
         max_num_tokens: 512
@@ -826,15 +826,15 @@ cases:
     commands:
       prepare_dataset:
         if_missing: true
-        output: /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
+        output: /mnt/datasets/autobench/token_norm_dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
         argv:
           - trtllm-bench
           - --model
           - meta-llama/Llama-2-7b-hf
           - prepare-dataset
           - --output
-          - /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
-          - token-norm-dist
+          - /mnt/datasets/autobench/token_norm_dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
+          - token_norm_dist
           - --num-requests
           - "1000"
           - --input-mean
@@ -869,7 +869,7 @@ cases:
           - --kv_cache_dtype
           - fp8
           - --dataset
-          - /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
+          - /mnt/datasets/autobench/token_norm_dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=128_0__n=1000.txt
           - --config
           - config.yaml
           - --max_batch_size

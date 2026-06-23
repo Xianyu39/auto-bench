@@ -12,7 +12,7 @@ def test_cli_version(capsys) -> None:
         main(["--version"])
     except SystemExit as exc:
         assert exc.code == 0
-    assert "auto-bench 0.1.4" in capsys.readouterr().out
+    assert "auto-bench 0.1.5" in capsys.readouterr().out
 
 
 def test_cli_template_stdout(capsys) -> None:

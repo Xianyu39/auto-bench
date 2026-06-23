@@ -36,7 +36,7 @@ auto-bench --version
 ```
 
 如果需要可复现安装，建议把 `@main` 替换成具体 release tag，例如
-`@v0.1.4`。
+`@v0.1.5`。
 
 ## 快速开始
 
@@ -128,7 +128,7 @@ trtllm:
     osl: 64
     dataset:
       root: /mnt/datasets/autobench
-      generator: token-norm-dist
+      generator: token_norm_dist
       num_requests: 100
       input_mean: "${trtllm.throughput.isl}"
       output_mean: "${trtllm.throughput.osl}"
@@ -260,13 +260,13 @@ trtllm-bench \
 未知的 `trtllm` 参数不会被丢弃，会按 YAML key 原样渲染为 `--<key>`。例如
 `custom_command: 42` 会渲染为 `--custom_command 42`。已知参数可能会使用
 manifest 中定义的 CLI 拼写，例如 `iteration_log` 会渲染为
-`--iteration-log`。
+`--iteration_log`。
 
 布尔值规则：
 
 - `true` 渲染成无值 flag，例如 `streaming: true` -> `--streaming`。
 - `false` 不渲染。
-- `null` 渲染成无值 flag，例如 `iteration_log: null` -> `--iteration-log`。
+- `null` 渲染成无值 flag，例如 `streaming: null` -> `--streaming`。
 - 如果不想渲染某个参数，请直接省略该字段。
 
 ## Sweep 与表达式
@@ -355,7 +355,7 @@ trtllm:
   throughput:
     dataset:
       root: /mnt/datasets/autobench
-      generator: token-norm-dist
+      generator: token_norm_dist
       num_requests: 100
       input_mean: "${trtllm.throughput.isl}"
       output_mean: "${trtllm.throughput.osl}"
@@ -363,7 +363,8 @@ trtllm:
       output_stdev: 0
 ```
 
-当前支持的 generator 是 `token-norm-dist`。可用参数：
+当前支持的 generator 是 `dataset`、`token_norm_dist` 和 `token_unif_dist`。
+`token_norm_dist` 可用参数：
 
 - `num_requests`
 - `input_mean`
@@ -374,7 +375,7 @@ trtllm:
 解析时会生成确定性的文件名：
 
 ```text
-<root>/token-norm-dist__model=<slug(model)>__in=<input_mean>_<input_stdev>__out=<output_mean>_<output_stdev>__n=<num_requests>.txt
+<root>/token_norm_dist__model=<slug(model)>__in=<input_mean>_<input_stdev>__out=<output_mean>_<output_stdev>__n=<num_requests>.txt
 ```
 
 渲染后的 `cmd.sh` 会先检查这个文件是否存在。如果不存在，会运行：
@@ -383,8 +384,8 @@ trtllm:
 trtllm-bench \
   --model meta-llama/Llama-2-7b-hf \
   prepare-dataset \
-  --output /mnt/datasets/autobench/token-norm-dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=64_0__n=100.txt \
-  token-norm-dist \
+  --output /mnt/datasets/autobench/token_norm_dist__model=meta-llama_Llama-2-7b-hf__in=128_0__out=64_0__n=100.txt \
+  token_norm_dist \
   --num-requests 100 \
   --input-mean 128 \
   --output-mean 64 \
@@ -586,7 +587,7 @@ trtllm:
   throughput:
     dataset:
       root: "${runtime.dataset_dir}"
-      generator: token-norm-dist
+      generator: token_norm_dist
       num_requests: 100
       input_mean: 128
       output_mean: 64

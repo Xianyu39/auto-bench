@@ -25,11 +25,12 @@ trtllm:
     max_batch_size: "${vars.batch_size}"
     max_num_tokens: "${vars.batch_size * trtllm.throughput.dataset.input_mean + 1}"
     num_requests: 256
+    streaming: null
     iteration_log: "${runtime.run_dir}/iter.log"
 
     dataset:
       root: /mnt/datasets/autobench
-      generator: token-norm-dist
+      generator: token_norm_dist
       num_requests: 256
       input_mean: 1024
       output_mean: 1024
