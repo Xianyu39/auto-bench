@@ -31,8 +31,8 @@ must generate it before running the benchmark command.
 
 ## Top-Level Structure
 
-An autobench YAML file has two required top-level sections and one optional
-variable section:
+An autobench YAML file has two required top-level sections and two optional
+top-level sections:
 
 ```yaml
 metadata:
@@ -51,6 +51,10 @@ metadata:
 vars:
   batch_size:
     sweep: [1, 2, 4, 8]
+
+nsys:
+  compare: true
+  output: "${runtime.run_dir}/nsys_trace"
 
 trtllm-bench:
   model: meta-llama/Llama-2-7b-hf
@@ -131,6 +135,49 @@ commands:
 export CUDA_VISIBLE_DEVICES=0
 export TRTLLM_LOG_LEVEL=INFO
 ```
+
+### `nsys`
+
+`nsys` is an optional top-level section for Nsight Systems profiling. It may be
+`true`, `false`, `null`, or a mapping. When enabled, the render step prefixes
+the benchmark command with an Nsight Systems command. The default prefix is:
+
+```bash
+nsys profile --force-overwrite true --trace cuda,nvtx -o "$SCRIPT_DIR/nsys_trace"
+```
+
+The mapping supports:
+
+- `enabled`: optional boolean, defaults to `true`.
+- `compare`: optional boolean, defaults to `false`. When true, the rendered
+  case script runs the original benchmark command first and the nsys-prefixed
+  benchmark command second.
+- `executable`: optional command name, defaults to `nsys`.
+- `output`: optional trace output path, defaults to `$SCRIPT_DIR/nsys_trace`.
+- `trace`: optional value for `--trace`, defaults to `cuda,nvtx`.
+- `force_overwrite`: optional value for `--force-overwrite`, defaults to
+  `true`. Set it to `null` to omit that option.
+- `args`: optional list of extra nsys arguments inserted before `-o`.
+- `command_prefix`: optional full command prefix as a string or list. When set,
+  it replaces the generated prefix.
+
+Example:
+
+```yaml
+nsys:
+  compare: true
+  output: "${runtime.run_dir}/nsys_trace"
+```
+
+With `compare: true`, the rendered script writes the baseline run to
+`baseline/run.log`, the profiled run to `nsys/run.log`, and the full script log
+to the case-level `run.log`. Benchmark output paths derived from
+`runtime.run_dir` are rewritten per variant, so an argument such as
+`$SCRIPT_DIR/iter.log` becomes `$BASELINE_DIR/iter.log` for the baseline run and
+`$NSYS_DIR/iter.log` for the profiled run. Shared inputs such as
+`$SCRIPT_DIR/config.yaml` and `$SCRIPT_DIR/datasets/...` remain case-level
+paths. Result collection emits separate rows with `variant: baseline` and
+`variant: nsys`.
 
 ### `vars`
 

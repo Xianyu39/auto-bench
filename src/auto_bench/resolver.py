@@ -32,6 +32,7 @@ RUNTIME_CONTEXT = {
 BENCHMARK_SECTION = "trtllm-bench"
 LEGACY_BENCHMARK_SECTION = "trtllm"
 BENCHMARK_EXPR_NAME = "trtllm_bench"
+NSYS_SECTION = "nsys"
 
 
 @dataclass(frozen=True)
@@ -81,7 +82,13 @@ def dump_yaml(data: Mapping[str, Any]) -> str:
 
 
 def _validate_top_level(data: Mapping[str, Any]) -> None:
-    allowed = {"metadata", "vars", BENCHMARK_SECTION, LEGACY_BENCHMARK_SECTION}
+    allowed = {
+        "metadata",
+        "vars",
+        NSYS_SECTION,
+        BENCHMARK_SECTION,
+        LEGACY_BENCHMARK_SECTION,
+    }
     actual = set(data)
     unknown = actual - allowed
     if unknown:
@@ -103,6 +110,12 @@ def _validate_top_level(data: Mapping[str, Any]) -> None:
         raise ProtocolError(f"{benchmark_section}: expected a mapping")
     if "vars" in data and not isinstance(data["vars"], dict):
         raise ProtocolError("vars: expected a mapping")
+    if (
+        NSYS_SECTION in data
+        and data[NSYS_SECTION] is not None
+        and not isinstance(data[NSYS_SECTION], bool | dict)
+    ):
+        raise ProtocolError("nsys: expected a boolean, null, or mapping")
 
 
 def _normalize_top_level(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -140,6 +153,8 @@ def _collect_sweeps(data: Mapping[str, Any]) -> list[SweepField]:
     walk(data["metadata"], ("metadata",))
     if "vars" in data:
         walk(data["vars"], ("vars",))
+    if NSYS_SECTION in data:
+        walk(data[NSYS_SECTION], (NSYS_SECTION,))
     walk(data[BENCHMARK_SECTION], (BENCHMARK_SECTION,))
     return fields
 
@@ -164,6 +179,7 @@ def _resolve_case(
     context = {
         "metadata": case_data["metadata"],
         "vars": case_data.get("vars", {}),
+        NSYS_SECTION: case_data.get(NSYS_SECTION),
         BENCHMARK_EXPR_NAME: case_data[BENCHMARK_SECTION],
         LEGACY_BENCHMARK_SECTION: case_data[BENCHMARK_SECTION],
         "runtime": RUNTIME_CONTEXT,
@@ -171,6 +187,7 @@ def _resolve_case(
     rendered = render_value(case_data, context, "")
     metadata = rendered["metadata"]
     variables = rendered.get("vars", {})
+    nsys = rendered.get(NSYS_SECTION)
     trtllm = rendered[BENCHMARK_SECTION]
     if (
         not isinstance(metadata, dict)
@@ -191,7 +208,7 @@ def _resolve_case(
     benchmark = _benchmark_command(trtllm)
     _assert_no_unresolved(rendered)
 
-    return {
+    resolved_case = {
         "case_id": case_id,
         "metadata": metadata,
         "vars": variables,
@@ -204,6 +221,9 @@ def _resolve_case(
             "benchmark": benchmark,
         },
     }
+    if nsys is not None:
+        resolved_case[NSYS_SECTION] = nsys
+    return resolved_case
 
 
 def _apply_defaults(trtllm: dict[str, Any]) -> None:

@@ -124,6 +124,8 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
     benchmark_argv = list(commands["benchmark"]["argv"])
     if local_config_path is not None:
         benchmark_argv = _replace_config_path(benchmark_argv, "$SCRIPT_DIR/config.yaml")
+    metadata = case.get("metadata", {})
+    nsys = _nsys_config(case.get("nsys"))
 
     lines = [
         "#!/usr/bin/env bash",
@@ -134,8 +136,8 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
         'exec > >(tee -a "$LOG_FILE") 2>&1',
         "",
     ]
-    lines.extend(_environment_lines(case.get("metadata", {})))
-    lines.extend(_gpu_frequency_lines(case.get("metadata", {})))
+    lines.extend(_environment_lines(metadata))
+    lines.extend(_gpu_frequency_lines(metadata))
 
     prepare = commands.get("prepare_dataset")
     if isinstance(prepare, dict):
@@ -150,7 +152,12 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
             ]
         )
 
-    lines.append(_format_command(benchmark_argv))
+    if nsys is not None and nsys["compare"]:
+        lines.extend(_compare_benchmark_lines(benchmark_argv, nsys["prefix"]))
+    else:
+        if nsys is not None:
+            benchmark_argv = [*nsys["prefix"], *benchmark_argv]
+        lines.append(_format_command(benchmark_argv))
     lines.append("")
     return "\n".join(lines)
 
@@ -219,6 +226,114 @@ def _gpu_frequency_lines(metadata: Any) -> list[str]:
     return commands
 
 
+def _nsys_config(config: Any) -> dict[str, Any] | None:
+    if config in (None, False):
+        return None
+    if config is True:
+        config = {}
+    if not isinstance(config, dict):
+        return None
+    if config.get("enabled", True) is False:
+        return None
+    prefix = _nsys_prefix(config)
+    if not prefix:
+        return None
+    return {"prefix": prefix, "compare": bool(config.get("compare", False))}
+
+
+def _nsys_prefix(config: dict[str, Any]) -> list[Any]:
+    command_prefix = config.get("command_prefix")
+    if isinstance(command_prefix, str):
+        return shlex.split(command_prefix)
+    if isinstance(command_prefix, list):
+        return command_prefix
+
+    executable = config.get("executable", "nsys")
+    output = config.get("output", "$SCRIPT_DIR/nsys_trace")
+    trace = config.get("trace", "cuda,nvtx")
+    prefix: list[Any] = [executable, "profile"]
+    force_overwrite = config.get("force_overwrite", True)
+    if force_overwrite is not None:
+        prefix.extend(["--force-overwrite", _shell_bool(force_overwrite)])
+    if trace is not None:
+        prefix.extend(["--trace", trace])
+    extra_args = config.get("args")
+    if isinstance(extra_args, list):
+        prefix.extend(extra_args)
+    if output is not None:
+        prefix.extend(["-o", output])
+    return prefix
+
+
+def _shell_bool(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _compare_benchmark_lines(
+    benchmark_argv: list[Any], nsys_prefix: list[Any]
+) -> list[str]:
+    baseline_argv = _variant_argv(benchmark_argv, "$BASELINE_DIR")
+    nsys_argv = [
+        *_variant_argv(nsys_prefix, "$NSYS_DIR"),
+        *_variant_argv(benchmark_argv, "$NSYS_DIR"),
+    ]
+    lines = [
+        'BASELINE_DIR="$SCRIPT_DIR/baseline"',
+        'NSYS_DIR="$SCRIPT_DIR/nsys"',
+        'mkdir -p "$BASELINE_DIR" "$NSYS_DIR"',
+        'BASELINE_LOG_FILE="$BASELINE_DIR/run.log"',
+        'NSYS_LOG_FILE="$NSYS_DIR/run.log"',
+        ': > "$BASELINE_LOG_FILE"',
+        ': > "$NSYS_LOG_FILE"',
+        "",
+    ]
+    lines.extend(
+        _logged_command_block(
+            'echo "auto-bench: running baseline"',
+            baseline_argv,
+            "$BASELINE_LOG_FILE",
+        )
+    )
+    lines.append("")
+    lines.extend(
+        _logged_command_block(
+            'echo "auto-bench: running nsys"',
+            nsys_argv,
+            "$NSYS_LOG_FILE",
+        )
+    )
+    return lines
+
+
+def _variant_argv(argv: list[Any], variant_dir: str) -> list[str]:
+    return [_variant_path(str(arg), variant_dir) for arg in argv]
+
+
+def _variant_path(value: str, variant_dir: str) -> str:
+    if not value.startswith("$SCRIPT_DIR/"):
+        return value
+    if _is_shared_case_path(value):
+        return value
+    return f"{variant_dir}/{value.removeprefix('$SCRIPT_DIR/')}"
+
+
+def _is_shared_case_path(value: str) -> bool:
+    return value == "$SCRIPT_DIR/config.yaml" or value.startswith(
+        "$SCRIPT_DIR/datasets/"
+    )
+
+
+def _logged_command_block(label: str, argv: list[Any], log_var: str) -> list[str]:
+    return [
+        label,
+        "{",
+        _format_command(argv, indent="  "),
+        f'}} > >(tee -a "{log_var}") 2>&1',
+    ]
+
+
 def _replace_config_path(argv: list[Any], config_path: str) -> list[str]:
     rendered = [str(item) for item in argv]
     if "--config" not in rendered:
@@ -279,4 +394,8 @@ def _sh(value: str) -> str:
 
 
 def _is_script_dir_path(value: str) -> bool:
-    return value == "$SCRIPT_DIR" or value.startswith("$SCRIPT_DIR/")
+    shell_dirs = ("$SCRIPT_DIR", "$BASELINE_DIR", "$NSYS_DIR")
+    return any(
+        value == shell_dir or value.startswith(f"{shell_dir}/")
+        for shell_dir in shell_dirs
+    )
