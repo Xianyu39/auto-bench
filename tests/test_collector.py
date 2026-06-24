@@ -88,6 +88,7 @@ def test_collect_results_from_rendered_multi_case_artifacts(tmp_path: Path) -> N
     rows = collect_results(tmp_path, "trtllm-bench")
 
     assert rows[0]["case_id"] == "case_one"
+    assert rows[0]["variant"] == "default"
     assert rows[0]["status"] == "ok"
     assert rows[0]["vars.batch_size"] == 1
     assert rows[0]["metrics.request_throughput"] == 10.5
@@ -108,6 +109,25 @@ def test_collect_results_marks_missing_logs(tmp_path: Path) -> None:
     assert "metrics.request_throughput" not in rows[0]
 
 
+def test_collect_results_reads_nsys_compare_logs(tmp_path: Path) -> None:
+    payload = {"version": "autobench.resolved/v0.1", "cases": [_case("one", 1)]}
+    payload["cases"][0]["nsys"] = {"compare": True}
+    render_resolved(payload, tmp_path)
+    (tmp_path / "baseline.run.log").write_text(
+        "Request throughput (req/sec): 10\n", encoding="utf-8"
+    )
+    (tmp_path / "nsys.run.log").write_text(
+        "Request throughput (req/sec): 8\n", encoding="utf-8"
+    )
+
+    rows = collect_results(tmp_path, "trtllm-bench")
+
+    assert [row["variant"] for row in rows] == ["baseline", "nsys"]
+    assert rows[0]["nsys.compare"] is True
+    assert rows[0]["metrics.request_throughput"] == 10
+    assert rows[1]["metrics.request_throughput"] == 8
+
+
 def test_render_results_csv() -> None:
     output = render_results(
         [
@@ -121,8 +141,8 @@ def test_render_results_csv() -> None:
         "csv",
     )
 
-    assert "case_id,status,log_path,metrics.request_throughput" in output
-    assert "case_one,ok,/tmp/run.log,10" in output
+    assert "case_id,variant,status,log_path,metrics.request_throughput" in output
+    assert "case_one,,ok,/tmp/run.log,10" in output
 
 
 def _resolved_payload() -> dict:

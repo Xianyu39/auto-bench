@@ -54,28 +54,29 @@ def collect_results(
             raise AutobenchError(f"{resolved_path}: case entries must be mappings")
         case_id = str(case.get("case_id", "case"))
         case_dir = root / case_id if multi_case else root
-        log_path = case_dir / "run.log"
+        for variant, log_path in _case_log_paths(case, case_dir):
+            row: dict[str, Any] = {
+                "case_id": case_id,
+                "variant": variant,
+                "log_path": str(log_path),
+            }
+            _add_flattened(row, "metadata", case.get("metadata", {}))
+            _add_flattened(row, "vars", case.get("vars", {}))
+            _add_flattened(row, "nsys", case.get("nsys", {}))
 
-        row: dict[str, Any] = {
-            "case_id": case_id,
-            "log_path": str(log_path),
-        }
-        _add_flattened(row, "metadata", case.get("metadata", {}))
-        _add_flattened(row, "vars", case.get("vars", {}))
+            if not log_path.exists():
+                row["status"] = "missing_log"
+                rows.append(row)
+                continue
 
-        if not log_path.exists():
-            row["status"] = "missing_log"
+            metrics = extract_trtllm_bench_metrics(log_path.read_text(encoding="utf-8"))
+            row["status"] = "ok" if metrics else "no_metrics"
+            for name, metric in sorted(metrics.items()):
+                row[f"metrics.{name}"] = metric["value"]
+                unit = metric.get("unit")
+                if unit:
+                    row[f"metrics.{name}_unit"] = unit
             rows.append(row)
-            continue
-
-        metrics = extract_trtllm_bench_metrics(log_path.read_text(encoding="utf-8"))
-        row["status"] = "ok" if metrics else "no_metrics"
-        for name, metric in sorted(metrics.items()):
-            row[f"metrics.{name}"] = metric["value"]
-            unit = metric.get("unit")
-            if unit:
-                row[f"metrics.{name}_unit"] = unit
-        rows.append(row)
     return rows
 
 
@@ -178,6 +179,18 @@ def _add_flattened(row: dict[str, Any], prefix: str, value: Any) -> None:
         row[f"{prefix}.{key}"] = item
 
 
+def _case_log_paths(case: Mapping[str, Any], case_dir: Path) -> list[tuple[str, Path]]:
+    nsys = case.get("nsys")
+    if nsys is True:
+        nsys = {}
+    if isinstance(nsys, Mapping) and nsys.get("compare", False):
+        return [
+            ("baseline", case_dir / "baseline.run.log"),
+            ("nsys", case_dir / "nsys.run.log"),
+        ]
+    return [("default", case_dir / "run.log")]
+
+
 def _flatten(value: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
     flattened: dict[str, Any] = {}
     for key, item in value.items():
@@ -192,7 +205,7 @@ def _flatten(value: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
 
 
 def _rows_to_csv(rows: list[dict[str, Any]]) -> str:
-    base_columns = ["case_id", "status", "log_path"]
+    base_columns = ["case_id", "variant", "status", "log_path"]
     other_columns = sorted(
         key for row in rows for key in row if key not in set(base_columns)
     )

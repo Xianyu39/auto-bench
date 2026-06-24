@@ -97,6 +97,51 @@ def test_render_environment_variables(tmp_path: Path) -> None:
     assert "export TRTLLM_LOG_LEVEL=INFO" in cmd_text
 
 
+def test_render_nsys_wraps_benchmark_command(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["nsys"] = {
+        "enabled": True,
+        "trace": "cuda,nvtx,osrt",
+        "output": "$SCRIPT_DIR/profile",
+    }
+
+    render_resolved(payload, tmp_path)
+
+    cmd_text = (tmp_path / "cmd.sh").read_text()
+    assert "nsys \\" in cmd_text
+    assert "  profile \\" in cmd_text
+    assert "  --trace cuda,nvtx,osrt \\" in cmd_text
+    assert '  -o "$SCRIPT_DIR/profile" \\' in cmd_text
+    assert "  trtllm-bench \\" in cmd_text
+
+
+def test_render_nsys_compare_runs_baseline_and_profile(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["nsys"] = {
+        "compare": True,
+        "command_prefix": [
+            "nsys",
+            "profile",
+            "--sample",
+            "none",
+            "-o",
+            "$SCRIPT_DIR/nsys_trace",
+        ],
+    }
+
+    render_resolved(payload, tmp_path)
+
+    cmd_text = (tmp_path / "cmd.sh").read_text()
+    assert 'BASELINE_LOG_FILE="$SCRIPT_DIR/baseline.run.log"' in cmd_text
+    assert 'NSYS_LOG_FILE="$SCRIPT_DIR/nsys.run.log"' in cmd_text
+    assert 'echo "auto-bench: running baseline"' in cmd_text
+    assert 'echo "auto-bench: running nsys"' in cmd_text
+    assert '} > >(tee -a "$BASELINE_LOG_FILE") 2>&1' in cmd_text
+    assert '} > >(tee -a "$NSYS_LOG_FILE") 2>&1' in cmd_text
+    assert cmd_text.index("  trtllm-bench \\") < cmd_text.index("  nsys \\")
+    assert '  -o "$SCRIPT_DIR/nsys_trace" \\' in cmd_text
+
+
 def test_render_internal_script_dir_paths_expand_in_shell(tmp_path: Path) -> None:
     payload = _resolved_payload()
     payload["cases"][0]["commands"]["prepare_dataset"]["output"] = (

@@ -39,7 +39,7 @@ auto-bench --version
 ```
 
 如果需要可复现安装，建议把 `@main` 替换成具体 release tag，例如
-`@v0.1.7`。
+`@v0.1.8`。
 
 ## 快速开始
 
@@ -103,7 +103,7 @@ bash artifacts/my_decode/run_all.sh
 
 ## YAML 文件结构
 
-一份 autobench YAML 有三个顶层 section：
+一份 autobench YAML 有两个必填顶层 section 和两个可选顶层 section：
 
 ```yaml
 metadata:
@@ -121,6 +121,10 @@ metadata:
 vars:
   batch_size:
     sweep: [1, 4]
+
+nsys:
+  compare: true
+  output: "${runtime.run_dir}/nsys_trace"
 
 trtllm-bench:
   model: meta-llama/Llama-2-7b-hf
@@ -146,7 +150,7 @@ trtllm-bench:
     max_num_tokens: "${vars.batch_size * trtllm_bench.throughput.osl}"
 ```
 
-`metadata` 和 `trtllm-bench` 是必填 section，`vars` 可选。顶层不允许其它 section。
+`metadata` 和 `trtllm-bench` 是必填 section，`vars` 和 `nsys` 可选。顶层不允许其它 section。
 
 ### metadata
 
@@ -189,6 +193,46 @@ metadata:
 
 如果省略 `gpu_ids`，脚本会渲染不带 `-i` 的 `nvidia-smi -lgc`。如果设置
 `enabled: false`，则不会渲染锁频命令。
+
+### nsys
+
+`nsys` 是可选顶层 section，用来控制 Nsight Systems 采集。它可以写成简单开关：
+
+```yaml
+nsys: true
+```
+
+这样 benchmark 命令会被渲染为：
+
+```bash
+nsys profile --force-overwrite true --trace cuda,nvtx -o "$SCRIPT_DIR/nsys_trace" \
+  trtllm-bench ...
+```
+
+如果需要同一个 case 同时跑 baseline 和 nsys 两份数据：
+
+```yaml
+nsys:
+  enabled: true
+  compare: true
+  output: "${runtime.run_dir}/nsys_trace"
+```
+
+`compare: true` 会先执行原始 `trtllm-bench` 命令，再执行加 nsys 前缀的命令。
+两份日志分别写入 `baseline.run.log` 和 `nsys.run.log`，总输出仍会写入
+`run.log`。需要完全控制前缀时可以覆盖 `command_prefix`：
+
+```yaml
+nsys:
+  compare: true
+  command_prefix:
+    - nsys
+    - profile
+    - --sample
+    - none
+    - "-o"
+    - "${runtime.run_dir}/nsys_trace"
+```
 
 ### vars
 
@@ -495,7 +539,7 @@ cases:
 4. 导出 `metadata.env` 中的环境变量。
 5. 按 `metadata.gpu_frequency` 锁 GPU frequency。
 6. 如果使用 managed dataset 且数据集文件不存在，先运行 `prepare-dataset`。
-7. 执行最终 `trtllm-bench` benchmark 命令。
+7. 按顶层 `nsys` 决定直接执行、加 nsys 前缀执行，或 baseline/nsys 双跑。
 
 多 case 的 `run_all.sh` 会按解析顺序执行每个 case 的 `cmd.sh`。如果
 `metadata.gap` 大于 0，会在相邻 case 之间 sleep 对应秒数。
@@ -539,16 +583,19 @@ auto-bench collect_results artifacts/prefill_sweep \
 ```
 
 `collect_results` 会读取输出目录中的 `resolved.yaml` 来确定 case 列表，然后读取
-每个 case 目录下的 `run.log`。单 case 产物直接读取输出目录下的 `run.log`；
-多 case 产物读取 `<case_id>/run.log`。
+每个 case 的日志。普通 case 读取 `run.log`；配置了 `nsys.compare: true`
+的 case 会读取 `baseline.run.log` 和 `nsys.run.log`，并在结果中用
+`variant` 区分两份数据。
 
 CSV 中会包含：
 
 - `case_id`：case 名称。
+- `variant`：`default`、`baseline` 或 `nsys`。
 - `status`：`ok`、`missing_log` 或 `no_metrics`。
 - `log_path`：读取的日志路径。
 - `metadata.*`：从 resolved case 中展开的 metadata 字段。
 - `vars.*`：从 resolved case 中展开的变量字段。
+- `nsys.*`：从 resolved case 中展开的 nsys 采集配置字段。
 - `metrics.*`：从 `trtllm-bench` 日志中提取出的指标。
 
 目前支持解析常见的 `trtllm-bench` key-value 或简单表格输出，例如：

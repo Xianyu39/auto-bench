@@ -124,6 +124,8 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
     benchmark_argv = list(commands["benchmark"]["argv"])
     if local_config_path is not None:
         benchmark_argv = _replace_config_path(benchmark_argv, "$SCRIPT_DIR/config.yaml")
+    metadata = case.get("metadata", {})
+    nsys = _nsys_config(case.get("nsys"))
 
     lines = [
         "#!/usr/bin/env bash",
@@ -134,8 +136,8 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
         'exec > >(tee -a "$LOG_FILE") 2>&1',
         "",
     ]
-    lines.extend(_environment_lines(case.get("metadata", {})))
-    lines.extend(_gpu_frequency_lines(case.get("metadata", {})))
+    lines.extend(_environment_lines(metadata))
+    lines.extend(_gpu_frequency_lines(metadata))
 
     prepare = commands.get("prepare_dataset")
     if isinstance(prepare, dict):
@@ -150,7 +152,12 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
             ]
         )
 
-    lines.append(_format_command(benchmark_argv))
+    if nsys is not None and nsys["compare"]:
+        lines.extend(_compare_benchmark_lines(benchmark_argv, nsys["prefix"]))
+    else:
+        if nsys is not None:
+            benchmark_argv = [*nsys["prefix"], *benchmark_argv]
+        lines.append(_format_command(benchmark_argv))
     lines.append("")
     return "\n".join(lines)
 
@@ -217,6 +224,88 @@ def _gpu_frequency_lines(metadata: Any) -> list[str]:
         commands.append(_format_command(["nvidia-smi", "-lgc", clocks]))
     commands.append("")
     return commands
+
+
+def _nsys_config(config: Any) -> dict[str, Any] | None:
+    if config in (None, False):
+        return None
+    if config is True:
+        config = {}
+    if not isinstance(config, dict):
+        return None
+    if config.get("enabled", True) is False:
+        return None
+    prefix = _nsys_prefix(config)
+    if not prefix:
+        return None
+    return {"prefix": prefix, "compare": bool(config.get("compare", False))}
+
+
+def _nsys_prefix(config: dict[str, Any]) -> list[Any]:
+    command_prefix = config.get("command_prefix")
+    if isinstance(command_prefix, str):
+        return shlex.split(command_prefix)
+    if isinstance(command_prefix, list):
+        return command_prefix
+
+    executable = config.get("executable", "nsys")
+    output = config.get("output", "$SCRIPT_DIR/nsys_trace")
+    trace = config.get("trace", "cuda,nvtx")
+    prefix: list[Any] = [executable, "profile"]
+    force_overwrite = config.get("force_overwrite", True)
+    if force_overwrite is not None:
+        prefix.extend(["--force-overwrite", _shell_bool(force_overwrite)])
+    if trace is not None:
+        prefix.extend(["--trace", trace])
+    extra_args = config.get("args")
+    if isinstance(extra_args, list):
+        prefix.extend(extra_args)
+    if output is not None:
+        prefix.extend(["-o", output])
+    return prefix
+
+
+def _shell_bool(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _compare_benchmark_lines(
+    benchmark_argv: list[Any], nsys_prefix: list[Any]
+) -> list[str]:
+    lines = [
+        'BASELINE_LOG_FILE="$SCRIPT_DIR/baseline.run.log"',
+        'NSYS_LOG_FILE="$SCRIPT_DIR/nsys.run.log"',
+        ': > "$BASELINE_LOG_FILE"',
+        ': > "$NSYS_LOG_FILE"',
+        "",
+    ]
+    lines.extend(
+        _logged_command_block(
+            'echo "auto-bench: running baseline"',
+            benchmark_argv,
+            "$BASELINE_LOG_FILE",
+        )
+    )
+    lines.append("")
+    lines.extend(
+        _logged_command_block(
+            'echo "auto-bench: running nsys"',
+            [*nsys_prefix, *benchmark_argv],
+            "$NSYS_LOG_FILE",
+        )
+    )
+    return lines
+
+
+def _logged_command_block(label: str, argv: list[Any], log_var: str) -> list[str]:
+    return [
+        label,
+        "{",
+        _format_command(argv, indent="  "),
+        f'}} > >(tee -a "{log_var}") 2>&1',
+    ]
 
 
 def _replace_config_path(argv: list[Any], config_path: str) -> list[str]:

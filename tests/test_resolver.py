@@ -246,6 +246,30 @@ def test_runtime_variables_are_available_to_expressions() -> None:
     assert argv[argv.index("--config_path") + 1] == "$SCRIPT_DIR/config.yaml"
 
 
+def test_top_level_nsys_is_resolved() -> None:
+    result = resolve(
+        {
+            "metadata": {"name": "profile"},
+            "nsys": {
+                "compare": True,
+                "output": "${runtime.run_dir}/nsys_trace",
+            },
+            "trtllm-bench": {
+                "model": "llama",
+                "throughput": {
+                    "dataset": "/datasets/static.txt",
+                },
+            },
+        }
+    )
+
+    case = result["cases"][0]
+    assert case["nsys"] == {
+        "compare": True,
+        "output": "$SCRIPT_DIR/nsys_trace",
+    }
+
+
 def test_missing_reference_errors() -> None:
     with pytest.raises(ProtocolError, match="does not exist"):
         resolve(
