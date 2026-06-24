@@ -219,8 +219,11 @@ nsys:
 ```
 
 `compare: true` 会先执行原始 `trtllm-bench` 命令，再执行加 nsys 前缀的命令。
-两份日志分别写入 `baseline.run.log` 和 `nsys.run.log`，总输出仍会写入
-`run.log`。需要完全控制前缀时可以覆盖 `command_prefix`：
+两份 benchmark 日志分别写入 `baseline/run.log` 和 `nsys/run.log`，总输出仍会写入
+case 根目录的 `run.log`。compare 模式下，benchmark 参数中引用
+`runtime.run_dir` 生成的输出路径也会按 run 改写，例如 `iter.log` 会分别写到
+`baseline/iter.log` 和 `nsys/iter.log`；`config.yaml` 和 `datasets/` 这类共享输入
+仍保留在 case 根目录。需要完全控制前缀时可以覆盖 `command_prefix`：
 
 ```yaml
 nsys:
@@ -584,7 +587,7 @@ auto-bench collect_results artifacts/prefill_sweep \
 
 `collect_results` 会读取输出目录中的 `resolved.yaml` 来确定 case 列表，然后读取
 每个 case 的日志。普通 case 读取 `run.log`；配置了 `nsys.compare: true`
-的 case 会读取 `baseline.run.log` 和 `nsys.run.log`，并在结果中用
+的 case 会读取 `baseline/run.log` 和 `nsys/run.log`，并在结果中用
 `variant` 区分两份数据。
 
 CSV 中会包含：

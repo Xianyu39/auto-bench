@@ -113,10 +113,12 @@ def test_collect_results_reads_nsys_compare_logs(tmp_path: Path) -> None:
     payload = {"version": "autobench.resolved/v0.1", "cases": [_case("one", 1)]}
     payload["cases"][0]["nsys"] = {"compare": True}
     render_resolved(payload, tmp_path)
-    (tmp_path / "baseline.run.log").write_text(
+    (tmp_path / "baseline").mkdir()
+    (tmp_path / "nsys").mkdir()
+    (tmp_path / "baseline" / "run.log").write_text(
         "Request throughput (req/sec): 10\n", encoding="utf-8"
     )
-    (tmp_path / "nsys.run.log").write_text(
+    (tmp_path / "nsys" / "run.log").write_text(
         "Request throughput (req/sec): 8\n", encoding="utf-8"
     )
 

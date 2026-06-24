@@ -185,8 +185,8 @@ def _case_log_paths(case: Mapping[str, Any], case_dir: Path) -> list[tuple[str, 
         nsys = {}
     if isinstance(nsys, Mapping) and nsys.get("compare", False):
         return [
-            ("baseline", case_dir / "baseline.run.log"),
-            ("nsys", case_dir / "nsys.run.log"),
+            ("baseline", case_dir / "baseline" / "run.log"),
+            ("nsys", case_dir / "nsys" / "run.log"),
         ]
     return [("default", case_dir / "run.log")]
 

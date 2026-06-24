@@ -274,9 +274,17 @@ def _shell_bool(value: Any) -> str:
 def _compare_benchmark_lines(
     benchmark_argv: list[Any], nsys_prefix: list[Any]
 ) -> list[str]:
+    baseline_argv = _variant_argv(benchmark_argv, "$BASELINE_DIR")
+    nsys_argv = [
+        *_variant_argv(nsys_prefix, "$NSYS_DIR"),
+        *_variant_argv(benchmark_argv, "$NSYS_DIR"),
+    ]
     lines = [
-        'BASELINE_LOG_FILE="$SCRIPT_DIR/baseline.run.log"',
-        'NSYS_LOG_FILE="$SCRIPT_DIR/nsys.run.log"',
+        'BASELINE_DIR="$SCRIPT_DIR/baseline"',
+        'NSYS_DIR="$SCRIPT_DIR/nsys"',
+        'mkdir -p "$BASELINE_DIR" "$NSYS_DIR"',
+        'BASELINE_LOG_FILE="$BASELINE_DIR/run.log"',
+        'NSYS_LOG_FILE="$NSYS_DIR/run.log"',
         ': > "$BASELINE_LOG_FILE"',
         ': > "$NSYS_LOG_FILE"',
         "",
@@ -284,7 +292,7 @@ def _compare_benchmark_lines(
     lines.extend(
         _logged_command_block(
             'echo "auto-bench: running baseline"',
-            benchmark_argv,
+            baseline_argv,
             "$BASELINE_LOG_FILE",
         )
     )
@@ -292,11 +300,29 @@ def _compare_benchmark_lines(
     lines.extend(
         _logged_command_block(
             'echo "auto-bench: running nsys"',
-            [*nsys_prefix, *benchmark_argv],
+            nsys_argv,
             "$NSYS_LOG_FILE",
         )
     )
     return lines
+
+
+def _variant_argv(argv: list[Any], variant_dir: str) -> list[str]:
+    return [_variant_path(str(arg), variant_dir) for arg in argv]
+
+
+def _variant_path(value: str, variant_dir: str) -> str:
+    if not value.startswith("$SCRIPT_DIR/"):
+        return value
+    if _is_shared_case_path(value):
+        return value
+    return f"{variant_dir}/{value.removeprefix('$SCRIPT_DIR/')}"
+
+
+def _is_shared_case_path(value: str) -> bool:
+    return value == "$SCRIPT_DIR/config.yaml" or value.startswith(
+        "$SCRIPT_DIR/datasets/"
+    )
 
 
 def _logged_command_block(label: str, argv: list[Any], log_var: str) -> list[str]:
@@ -368,4 +394,8 @@ def _sh(value: str) -> str:
 
 
 def _is_script_dir_path(value: str) -> bool:
-    return value == "$SCRIPT_DIR" or value.startswith("$SCRIPT_DIR/")
+    shell_dirs = ("$SCRIPT_DIR", "$BASELINE_DIR", "$NSYS_DIR")
+    return any(
+        value == shell_dir or value.startswith(f"{shell_dir}/")
+        for shell_dir in shell_dirs
+    )

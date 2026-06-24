@@ -117,6 +117,16 @@ def test_render_nsys_wraps_benchmark_command(tmp_path: Path) -> None:
 
 def test_render_nsys_compare_runs_baseline_and_profile(tmp_path: Path) -> None:
     payload = _resolved_payload()
+    payload["cases"][0]["commands"]["benchmark"]["argv"].extend(
+        [
+            "--iteration_log",
+            "$SCRIPT_DIR/iter.log",
+            "--artifact_dir",
+            "$SCRIPT_DIR/output",
+            "--dataset",
+            "$SCRIPT_DIR/datasets/data.txt",
+        ]
+    )
     payload["cases"][0]["nsys"] = {
         "compare": True,
         "command_prefix": [
@@ -132,14 +142,23 @@ def test_render_nsys_compare_runs_baseline_and_profile(tmp_path: Path) -> None:
     render_resolved(payload, tmp_path)
 
     cmd_text = (tmp_path / "cmd.sh").read_text()
-    assert 'BASELINE_LOG_FILE="$SCRIPT_DIR/baseline.run.log"' in cmd_text
-    assert 'NSYS_LOG_FILE="$SCRIPT_DIR/nsys.run.log"' in cmd_text
+    assert 'BASELINE_DIR="$SCRIPT_DIR/baseline"' in cmd_text
+    assert 'NSYS_DIR="$SCRIPT_DIR/nsys"' in cmd_text
+    assert 'mkdir -p "$BASELINE_DIR" "$NSYS_DIR"' in cmd_text
+    assert 'BASELINE_LOG_FILE="$BASELINE_DIR/run.log"' in cmd_text
+    assert 'NSYS_LOG_FILE="$NSYS_DIR/run.log"' in cmd_text
     assert 'echo "auto-bench: running baseline"' in cmd_text
     assert 'echo "auto-bench: running nsys"' in cmd_text
     assert '} > >(tee -a "$BASELINE_LOG_FILE") 2>&1' in cmd_text
     assert '} > >(tee -a "$NSYS_LOG_FILE") 2>&1' in cmd_text
     assert cmd_text.index("  trtllm-bench \\") < cmd_text.index("  nsys \\")
-    assert '  -o "$SCRIPT_DIR/nsys_trace" \\' in cmd_text
+    assert '  --iteration_log "$BASELINE_DIR/iter.log" \\' in cmd_text
+    assert '  --iteration_log "$NSYS_DIR/iter.log" \\' in cmd_text
+    assert '  --artifact_dir "$BASELINE_DIR/output" \\' in cmd_text
+    assert '  --artifact_dir "$NSYS_DIR/output" \\' in cmd_text
+    assert '  -o "$NSYS_DIR/nsys_trace" \\' in cmd_text
+    assert '  --config "$SCRIPT_DIR/config.yaml" \\' in cmd_text
+    assert '  --dataset "$SCRIPT_DIR/datasets/data.txt"' in cmd_text
 
 
 def test_render_internal_script_dir_paths_expand_in_shell(tmp_path: Path) -> None:

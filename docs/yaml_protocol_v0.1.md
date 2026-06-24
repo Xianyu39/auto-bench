@@ -170,9 +170,14 @@ nsys:
 ```
 
 With `compare: true`, the rendered script writes the baseline run to
-`baseline.run.log`, the profiled run to `nsys.run.log`, and the full script log
-to `run.log`. Result collection emits separate rows with `variant: baseline`
-and `variant: nsys`.
+`baseline/run.log`, the profiled run to `nsys/run.log`, and the full script log
+to the case-level `run.log`. Benchmark output paths derived from
+`runtime.run_dir` are rewritten per variant, so an argument such as
+`$SCRIPT_DIR/iter.log` becomes `$BASELINE_DIR/iter.log` for the baseline run and
+`$NSYS_DIR/iter.log` for the profiled run. Shared inputs such as
+`$SCRIPT_DIR/config.yaml` and `$SCRIPT_DIR/datasets/...` remain case-level
+paths. Result collection emits separate rows with `variant: baseline` and
+`variant: nsys`.
 
 ### `vars`
 
