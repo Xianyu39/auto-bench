@@ -53,7 +53,6 @@ vars:
     sweep: [1, 2, 4, 8]
 
 nsys:
-  compare: true
   output: "${runtime.run_dir}/nsys_trace"
 
 trtllm-bench:
@@ -143,21 +142,31 @@ export TRTLLM_LOG_LEVEL=INFO
 the benchmark command with an Nsight Systems command. The default prefix is:
 
 ```bash
-nsys profile --force-overwrite true --trace cuda,nvtx -o "$SCRIPT_DIR/nsys_trace"
+nsys profile -f true -t cuda,nvtx -o "$SCRIPT_DIR/nsys_trace"
 ```
 
 The mapping supports:
 
 - `enabled`: optional boolean, defaults to `true`.
-- `compare`: optional boolean, defaults to `false`. When true, the rendered
-  case script runs the original benchmark command first and the nsys-prefixed
-  benchmark command second.
+- `env`: optional mapping of environment variables injected only into the nsys
+  command.
 - `executable`: optional command name, defaults to `nsys`.
 - `output`: optional trace output path, defaults to `$SCRIPT_DIR/nsys_trace`.
-- `trace`: optional value for `--trace`, defaults to `cuda,nvtx`.
+- `trace`: optional value for `--trace`, defaults to `cuda,nvtx`. A list is
+  rendered as a comma-separated value.
 - `force_overwrite`: optional value for `--force-overwrite`, defaults to
   `true`. Set it to `null` to omit that option.
-- `args`: optional list of extra nsys arguments inserted before `-o`.
+- `options`: optional mapping of additional nsys options. Keys are rendered as
+  CLI option names with underscores converted to hyphens.
+- Any non-reserved field under `nsys` is also rendered as an nsys option. For
+  example, `capture_range: cudaProfilerApi` renders as
+  `-c cudaProfilerApi`.
+- Common options use nsys short flags: `output -> -o`,
+  `force_overwrite -> -f`, `trace -> -t`, `capture_range -> -c`, and
+  `capture_range_end -> -e`. Other option names render as long flags with
+  underscores converted to hyphens, such as
+  `trace_fork_before_exec -> --trace-fork-before-exec`.
+- `args`: optional list of raw extra nsys arguments inserted before `-o`.
 - `command_prefix`: optional full command prefix as a string or list. When set,
   it replaces the generated prefix.
 
@@ -165,19 +174,26 @@ Example:
 
 ```yaml
 nsys:
-  compare: true
+  env:
+    NSYS_NVTX_PROFILER_REGISTER_ONLY: 0
+  trace: [cuda, nvtx, osrt]
+  force_overwrite: true
+  sample: none
+  capture_range: cudaProfilerApi
+  capture_range_end: stop-shutdown
+  trace_fork_before_exec: true
   output: "${runtime.run_dir}/nsys_trace"
 ```
 
-With `compare: true`, the rendered script writes the baseline run to
-`baseline/run.log`, the profiled run to `nsys/run.log`, and the full script log
-to the case-level `run.log`. Benchmark output paths derived from
-`runtime.run_dir` are rewritten per variant, so an argument such as
-`$SCRIPT_DIR/iter.log` becomes `$BASELINE_DIR/iter.log` for the baseline run and
-`$NSYS_DIR/iter.log` for the profiled run. Shared inputs such as
-`$SCRIPT_DIR/config.yaml` and `$SCRIPT_DIR/datasets/...` remain case-level
-paths. Result collection emits separate rows with `variant: baseline` and
-`variant: nsys`.
+When `nsys` is enabled, rendering creates both `cmd.sh` and `profile.sh`.
+`cmd.sh` always runs the ordinary benchmark. `profile.sh` wraps `cmd.sh` with
+the nsys prefix and sets `AUTO_BENCH_RUN_DIR=$PROFILE_DIR`, so benchmark output
+paths derived from `runtime.run_dir` are written under `profile/`. Shared
+inputs such as `$SCRIPT_DIR/config.yaml` and `$SCRIPT_DIR/datasets/...` remain
+case-level paths. For multi-case renders, `profile_all.sh` runs only
+`profile.sh` scripts. Result collection emits separate rows with
+`variant: default` and `variant: profile`; rows whose logs were not produced are
+marked `missing_log`.
 
 ### `vars`
 

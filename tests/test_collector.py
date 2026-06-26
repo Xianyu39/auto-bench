@@ -109,23 +109,22 @@ def test_collect_results_marks_missing_logs(tmp_path: Path) -> None:
     assert "metrics.request_throughput" not in rows[0]
 
 
-def test_collect_results_reads_nsys_compare_logs(tmp_path: Path) -> None:
+def test_collect_results_reads_nsys_profile_logs(tmp_path: Path) -> None:
     payload = {"version": "autobench.resolved/v0.1", "cases": [_case("one", 1)]}
-    payload["cases"][0]["nsys"] = {"compare": True}
+    payload["cases"][0]["nsys"] = {"sample": "none"}
     render_resolved(payload, tmp_path)
-    (tmp_path / "baseline").mkdir()
-    (tmp_path / "nsys").mkdir()
-    (tmp_path / "baseline" / "run.log").write_text(
+    (tmp_path / "run.log").write_text(
         "Request throughput (req/sec): 10\n", encoding="utf-8"
     )
-    (tmp_path / "nsys" / "run.log").write_text(
+    (tmp_path / "profile").mkdir()
+    (tmp_path / "profile" / "run.log").write_text(
         "Request throughput (req/sec): 8\n", encoding="utf-8"
     )
 
     rows = collect_results(tmp_path, "trtllm-bench")
 
-    assert [row["variant"] for row in rows] == ["baseline", "nsys"]
-    assert rows[0]["nsys.compare"] is True
+    assert [row["variant"] for row in rows] == ["default", "profile"]
+    assert rows[0]["nsys.sample"] == "none"
     assert rows[0]["metrics.request_throughput"] == 10
     assert rows[1]["metrics.request_throughput"] == 8
 

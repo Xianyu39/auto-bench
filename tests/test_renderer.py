@@ -15,7 +15,8 @@ def test_render_single_case_cmd_and_config(tmp_path: Path) -> None:
     assert config.exists()
     assert cmd.stat().st_mode & 0o111
     cmd_text = cmd.read_text()
-    assert 'LOG_FILE="$SCRIPT_DIR/run.log"' in cmd_text
+    assert 'RUN_DIR="${AUTO_BENCH_RUN_DIR:-$SCRIPT_DIR}"' in cmd_text
+    assert 'LOG_FILE="$RUN_DIR/run.log"' in cmd_text
     assert ': > "$LOG_FILE"' in cmd_text
     assert 'exec > >(tee -a "$LOG_FILE") 2>&1' in cmd_text
     assert "trtllm-bench \\" in cmd_text
@@ -101,21 +102,49 @@ def test_render_nsys_wraps_benchmark_command(tmp_path: Path) -> None:
     payload = _resolved_payload()
     payload["cases"][0]["nsys"] = {
         "enabled": True,
-        "trace": "cuda,nvtx,osrt",
+        "env": {
+            "CUDA_VISIBLE_DEVICES": 0,
+            "NSYS_OUTPUT_DIR": "$SCRIPT_DIR/nsys_env",
+        },
+        "trace": ["cuda", "nvtx", "osrt"],
+        "sample": "none",
+        "capture_range": "cudaProfilerApi",
+        "capture_range_end": "stop-shutdown",
+        "trace_fork_before_exec": True,
+        "cuda_memory_usage": True,
         "output": "$SCRIPT_DIR/profile",
     }
 
     render_resolved(payload, tmp_path)
 
     cmd_text = (tmp_path / "cmd.sh").read_text()
-    assert "nsys \\" in cmd_text
-    assert "  profile \\" in cmd_text
-    assert "  --trace cuda,nvtx,osrt \\" in cmd_text
-    assert '  -o "$SCRIPT_DIR/profile" \\' in cmd_text
+    assert "nsys" not in cmd_text
     assert "  trtllm-bench \\" in cmd_text
+    profile = tmp_path / "profile.sh"
+    assert profile.exists()
+    assert profile.stat().st_mode & 0o111
+    profile_text = profile.read_text()
+    assert 'PROFILE_DIR="$SCRIPT_DIR/profile"' in profile_text
+    assert 'PROFILE_LOG_FILE="$PROFILE_DIR/profile.log"' in profile_text
+    assert "env \\" in profile_text
+    assert "  CUDA_VISIBLE_DEVICES=0 \\" in profile_text
+    assert '  NSYS_OUTPUT_DIR="$PROFILE_DIR/nsys_env" \\' in profile_text
+    assert "  nsys \\" in profile_text
+    assert "  profile \\" in profile_text
+    assert "  -f true \\" in profile_text
+    assert "  -t cuda,nvtx,osrt \\" in profile_text
+    assert "  --sample none \\" in profile_text
+    assert "  -c cudaProfilerApi \\" in profile_text
+    assert "  -e stop-shutdown \\" in profile_text
+    assert "  --trace-fork-before-exec true \\" in profile_text
+    assert "  --cuda-memory-usage true \\" in profile_text
+    assert '  -o "$PROFILE_DIR/profile" \\' in profile_text
+    assert "  AUTO_BENCH_RUN_DIR=\"$PROFILE_DIR\" \\" in profile_text
+    assert "  bash \\" in profile_text
+    assert '  "$SCRIPT_DIR/cmd.sh"' in profile_text
 
 
-def test_render_nsys_compare_runs_baseline_and_profile(tmp_path: Path) -> None:
+def test_render_nsys_profile_script_isolates_outputs(tmp_path: Path) -> None:
     payload = _resolved_payload()
     payload["cases"][0]["commands"]["benchmark"]["argv"].extend(
         [
@@ -128,37 +157,92 @@ def test_render_nsys_compare_runs_baseline_and_profile(tmp_path: Path) -> None:
         ]
     )
     payload["cases"][0]["nsys"] = {
-        "compare": True,
-        "command_prefix": [
-            "nsys",
-            "profile",
-            "--sample",
-            "none",
-            "-o",
-            "$SCRIPT_DIR/nsys_trace",
-        ],
+        "sample": "none",
     }
 
     render_resolved(payload, tmp_path)
 
     cmd_text = (tmp_path / "cmd.sh").read_text()
-    assert 'BASELINE_DIR="$SCRIPT_DIR/baseline"' in cmd_text
-    assert 'NSYS_DIR="$SCRIPT_DIR/nsys"' in cmd_text
-    assert 'mkdir -p "$BASELINE_DIR" "$NSYS_DIR"' in cmd_text
-    assert 'BASELINE_LOG_FILE="$BASELINE_DIR/run.log"' in cmd_text
-    assert 'NSYS_LOG_FILE="$NSYS_DIR/run.log"' in cmd_text
-    assert 'echo "auto-bench: running baseline"' in cmd_text
-    assert 'echo "auto-bench: running nsys"' in cmd_text
-    assert '} > >(tee -a "$BASELINE_LOG_FILE") 2>&1' in cmd_text
-    assert '} > >(tee -a "$NSYS_LOG_FILE") 2>&1' in cmd_text
-    assert cmd_text.index("  trtllm-bench \\") < cmd_text.index("  nsys \\")
-    assert '  --iteration_log "$BASELINE_DIR/iter.log" \\' in cmd_text
-    assert '  --iteration_log "$NSYS_DIR/iter.log" \\' in cmd_text
-    assert '  --artifact_dir "$BASELINE_DIR/output" \\' in cmd_text
-    assert '  --artifact_dir "$NSYS_DIR/output" \\' in cmd_text
-    assert '  -o "$NSYS_DIR/nsys_trace" \\' in cmd_text
+    assert '  --iteration_log "$RUN_DIR/iter.log" \\' in cmd_text
+    assert '  --artifact_dir "$RUN_DIR/output" \\' in cmd_text
     assert '  --config "$SCRIPT_DIR/config.yaml" \\' in cmd_text
     assert '  --dataset "$SCRIPT_DIR/datasets/data.txt"' in cmd_text
+    assert "nsys" not in cmd_text
+
+    profile_text = (tmp_path / "profile.sh").read_text()
+    assert '  -o "$PROFILE_DIR/nsys_trace" \\' in profile_text
+    assert '  AUTO_BENCH_RUN_DIR="$PROFILE_DIR" \\' in profile_text
+    assert "  bash \\" in profile_text
+    assert '  "$SCRIPT_DIR/cmd.sh"' in profile_text
+
+
+def test_render_nsys_nested_options(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["nsys"] = {
+        "options": {
+            "sample": "none",
+            "capture_range": "cudaProfilerApi",
+        },
+    }
+
+    render_resolved(payload, tmp_path)
+
+    profile_text = (tmp_path / "profile.sh").read_text()
+    assert "  --sample none \\" in profile_text
+    assert "  -c cudaProfilerApi \\" in profile_text
+    assert '  -o "$PROFILE_DIR/nsys_trace" \\' in profile_text
+
+
+def test_render_nsys_null_options_are_omitted(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["nsys"] = {
+        "trace": None,
+        "force_overwrite": None,
+        "sample": "none",
+    }
+
+    render_resolved(payload, tmp_path)
+
+    profile_text = (tmp_path / "profile.sh").read_text()
+    assert "--trace" not in profile_text
+    assert "--force-overwrite" not in profile_text
+    assert "  -t " not in profile_text
+    assert "  -f " not in profile_text
+    assert "  --sample none \\" in profile_text
+
+
+def test_render_nsys_profile_rewrites_nsys_env_paths(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["nsys"] = {
+        "env": {
+            "NSYS_STATS_PATH": "$SCRIPT_DIR/stats",
+        },
+    }
+
+    render_resolved(payload, tmp_path)
+
+    profile_text = (tmp_path / "profile.sh").read_text()
+    assert '  NSYS_STATS_PATH="$PROFILE_DIR/stats" \\' in profile_text
+
+
+def test_render_multi_case_profile_all(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["nsys"] = {"sample": "none"}
+    payload["cases"][0]["metadata"]["gap"] = 7
+    payload["cases"].append(
+        {
+            **payload["cases"][0],
+            "case_id": "case_two",
+        }
+    )
+
+    render_resolved(payload, tmp_path)
+
+    profile_all = (tmp_path / "profile_all.sh").read_text()
+    assert "case_one/profile.sh" in profile_all
+    assert "case_two/profile.sh" in profile_all
+    assert "case_one/cmd.sh" not in profile_all
+    assert "sleep 7" in profile_all
 
 
 def test_render_internal_script_dir_paths_expand_in_shell(tmp_path: Path) -> None:
@@ -182,7 +266,7 @@ def test_render_internal_script_dir_paths_expand_in_shell(tmp_path: Path) -> Non
     assert 'if [ ! -f "$SCRIPT_DIR/datasets/data.txt" ]; then' in cmd_text
     assert 'mkdir -p "$SCRIPT_DIR/datasets"' in cmd_text
     assert '  --output "$SCRIPT_DIR/datasets/data.txt"' in cmd_text
-    assert '  --artifact_dir "$SCRIPT_DIR/artifacts"' in cmd_text
+    assert '  --artifact_dir "$RUN_DIR/artifacts"' in cmd_text
 
 
 def _resolved_payload() -> dict:

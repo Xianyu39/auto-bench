@@ -39,7 +39,7 @@ auto-bench --version
 ```
 
 如果需要可复现安装，建议把 `@main` 替换成具体 release tag，例如
-`@v0.1.8`。
+`@v0.1.9`。
 
 ## 快速开始
 
@@ -123,7 +123,6 @@ vars:
     sweep: [1, 4]
 
 nsys:
-  compare: true
   output: "${runtime.run_dir}/nsys_trace"
 
 trtllm-bench:
@@ -205,37 +204,46 @@ nsys: true
 这样 benchmark 命令会被渲染为：
 
 ```bash
-nsys profile --force-overwrite true --trace cuda,nvtx -o "$SCRIPT_DIR/nsys_trace" \
-  trtllm-bench ...
+nsys profile -f true -t cuda,nvtx -o "$PROFILE_DIR/nsys_trace" \
+  env AUTO_BENCH_RUN_DIR="$PROFILE_DIR" bash "$SCRIPT_DIR/cmd.sh"
 ```
 
-如果需要同一个 case 同时跑 baseline 和 nsys 两份数据：
+如果需要采集 nsys trace：
 
 ```yaml
 nsys:
   enabled: true
-  compare: true
+  env:
+    NSYS_NVTX_PROFILER_REGISTER_ONLY: 0
+  trace: [cuda, nvtx, osrt]
+  force_overwrite: true
+  sample: none
+  capture_range: cudaProfilerApi
+  capture_range_end: stop-shutdown
+  trace_fork_before_exec: true
   output: "${runtime.run_dir}/nsys_trace"
 ```
 
-`compare: true` 会先执行原始 `trtllm-bench` 命令，再执行加 nsys 前缀的命令。
-两份 benchmark 日志分别写入 `baseline/run.log` 和 `nsys/run.log`，总输出仍会写入
-case 根目录的 `run.log`。compare 模式下，benchmark 参数中引用
-`runtime.run_dir` 生成的输出路径也会按 run 改写，例如 `iter.log` 会分别写到
-`baseline/iter.log` 和 `nsys/iter.log`；`config.yaml` 和 `datasets/` 这类共享输入
-仍保留在 case 根目录。需要完全控制前缀时可以覆盖 `command_prefix`：
+启用 `nsys` 时，render 会额外生成 `profile.sh`。`cmd.sh` 始终执行普通
+benchmark；`profile.sh` 使用 nsys 包裹 `cmd.sh`，并把该次运行的 `run.log`、
+`iter.log` 和其它由 `runtime.run_dir` 生成的输出写到 `profile/` 目录下，避免覆盖
+普通运行。`config.yaml` 和 `datasets/` 这类共享输入仍保留在 case 根目录。
+`env` 会作为只注入给 nsys 命令的环境变量。`nsys` 下除
+`enabled`、`env`、`output` 等保留字段外，
+其它字段会自动渲染成 nsys 参数，例如 `capture_range` 会变成
+`--capture-range`，布尔值会渲染为 `true`/`false`，列表会用逗号连接。
+常用字段会使用 nsys 的短参数：`output -> -o`、`force_overwrite -> -f`、
+`trace -> -t`、`capture_range -> -c`、`capture_range_end -> -e`。
+也可以把参数放在 `options` 下：
 
 ```yaml
 nsys:
-  compare: true
-  command_prefix:
-    - nsys
-    - profile
-    - --sample
-    - none
-    - "-o"
-    - "${runtime.run_dir}/nsys_trace"
+  options:
+    sample: none
+    capture_range: cudaProfilerApi
 ```
+
+需要完全控制前缀时，仍可以用 `command_prefix` 覆盖整段 nsys 命令。
 
 ### vars
 
@@ -530,8 +538,11 @@ cases:
 
 - `resolved.yaml`：完整解析结果。
 - `cmd.sh`：单个 case 的可执行脚本。
+- `profile.sh`：当顶层 `nsys` 启用时生成，用 nsys 包裹同目录下的 `cmd.sh`。
 - `config.yaml`：managed config 内容，仅在需要时生成。
 - `run_all.sh`：多 case 时生成，用于按顺序运行所有 case。
+- `profile_all.sh`：多 case 且存在 nsys case 时生成，只按顺序运行各 case 的
+  `profile.sh`。
 - `run.log`：执行脚本时产生，不是 render 阶段生成。
 
 每个 `cmd.sh` 做的事情：
@@ -542,7 +553,11 @@ cases:
 4. 导出 `metadata.env` 中的环境变量。
 5. 按 `metadata.gpu_frequency` 锁 GPU frequency。
 6. 如果使用 managed dataset 且数据集文件不存在，先运行 `prepare-dataset`。
-7. 按顶层 `nsys` 决定直接执行、加 nsys 前缀执行，或 baseline/nsys 双跑。
+7. 执行最终 `trtllm-bench` benchmark 命令。
+
+每个 `profile.sh` 会创建 `profile/` 目录，把 nsys trace 写到该目录，并通过
+`AUTO_BENCH_RUN_DIR` 让内部的 `cmd.sh` 把本次 profile 运行的日志和产物也写到
+`profile/` 下。
 
 多 case 的 `run_all.sh` 会按解析顺序执行每个 case 的 `cmd.sh`。如果
 `metadata.gap` 大于 0，会在相邻 case 之间 sleep 对应秒数。
@@ -586,14 +601,14 @@ auto-bench collect_results artifacts/prefill_sweep \
 ```
 
 `collect_results` 会读取输出目录中的 `resolved.yaml` 来确定 case 列表，然后读取
-每个 case 的日志。普通 case 读取 `run.log`；配置了 `nsys.compare: true`
-的 case 会读取 `baseline/run.log` 和 `nsys/run.log`，并在结果中用
-`variant` 区分两份数据。
+每个 case 的日志。普通 case 读取 `run.log`；配置了 `nsys` 的 case 会读取
+`run.log` 和 `profile/run.log`，并在结果中用 `variant` 区分两份数据。如果只
+运行了其中一个脚本，另一行会显示 `missing_log`。
 
 CSV 中会包含：
 
 - `case_id`：case 名称。
-- `variant`：`default`、`baseline` 或 `nsys`。
+- `variant`：`default` 或 `profile`。
 - `status`：`ok`、`missing_log` 或 `no_metrics`。
 - `log_path`：读取的日志路径。
 - `metadata.*`：从 resolved case 中展开的 metadata 字段。

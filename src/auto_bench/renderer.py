@@ -45,6 +45,7 @@ def render_resolved(
 
     if multi_case:
         _write_run_all(root, cases, case_dirs, continue_on_error=continue_on_error)
+        _write_profile_all(root, cases, case_dirs, continue_on_error=continue_on_error)
     return case_dirs
 
 
@@ -61,6 +62,13 @@ def _write_case_artifacts(case: dict[str, Any], case_dir: Path) -> None:
     cmd_path = case_dir / "cmd.sh"
     cmd_path.write_text(cmd, encoding="utf-8")
     cmd_path.chmod(cmd_path.stat().st_mode | 0o111)
+
+    nsys = _nsys_config(case.get("nsys"))
+    if nsys is not None:
+        profile = _profile_script(nsys["prefix"])
+        profile_path = case_dir / "profile.sh"
+        profile_path.write_text(profile, encoding="utf-8")
+        profile_path.chmod(profile_path.stat().st_mode | 0o111)
 
 
 def _write_run_all(
@@ -119,19 +127,88 @@ def _write_run_all(
     run_all.chmod(run_all.stat().st_mode | 0o111)
 
 
+def _write_profile_all(
+    root: Path,
+    cases: list[Any],
+    case_dirs: list[Path],
+    *,
+    continue_on_error: bool,
+) -> None:
+    profile_cases = [
+        (case, case_dir)
+        for case, case_dir in zip(cases, case_dirs, strict=True)
+        if isinstance(case, dict) and _nsys_config(case.get("nsys")) is not None
+    ]
+    if not profile_cases:
+        return
+
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -uo pipefail" if continue_on_error else "set -euo pipefail",
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'LOG_FILE="$SCRIPT_DIR/profile_all.log"',
+        ': > "$LOG_FILE"',
+        'exec > >(tee -a "$LOG_FILE") 2>&1',
+        "",
+    ]
+    if continue_on_error:
+        lines.extend(
+            [
+                "FAILED=0",
+                "run_case() {",
+                "  local case_name=\"$1\"",
+                "  local case_script=\"$2\"",
+                "  if bash \"$case_script\"; then",
+                "    return 0",
+                "  fi",
+                "  local status=$?",
+                (
+                    '  echo "auto-bench: profile case failed: '
+                    '${case_name} (exit ${status})"'
+                ),
+                "  FAILED=1",
+                "  return 0",
+                "}",
+                "",
+            ]
+        )
+    for index, (case, case_dir) in enumerate(profile_cases):
+        relative = case_dir.relative_to(root)
+        if continue_on_error:
+            lines.append(
+                f"run_case {_sh(str(relative))} "
+                f"\"$SCRIPT_DIR/{relative}/profile.sh\""
+            )
+        else:
+            lines.append(f"bash \"$SCRIPT_DIR/{relative}/profile.sh\"")
+        if index < len(profile_cases) - 1:
+            gap = _metadata_gap(case)
+            if gap > 0:
+                lines.append(f"sleep {_sh(str(gap))}")
+    if continue_on_error:
+        lines.append('exit "$FAILED"')
+    lines.append("")
+
+    profile_all = root / "profile_all.sh"
+    profile_all.write_text("\n".join(lines), encoding="utf-8")
+    profile_all.chmod(profile_all.stat().st_mode | 0o111)
+
+
 def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
     commands = case["commands"]
     benchmark_argv = list(commands["benchmark"]["argv"])
     if local_config_path is not None:
         benchmark_argv = _replace_config_path(benchmark_argv, "$SCRIPT_DIR/config.yaml")
     metadata = case.get("metadata", {})
-    nsys = _nsys_config(case.get("nsys"))
+    benchmark_argv = _run_dir_argv(benchmark_argv)
 
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
-        'LOG_FILE="$SCRIPT_DIR/run.log"',
+        'RUN_DIR="${AUTO_BENCH_RUN_DIR:-$SCRIPT_DIR}"',
+        'mkdir -p "$RUN_DIR"',
+        'LOG_FILE="$RUN_DIR/run.log"',
         ': > "$LOG_FILE"',
         'exec > >(tee -a "$LOG_FILE") 2>&1',
         "",
@@ -152,13 +229,32 @@ def _cmd_script(case: dict[str, Any], local_config_path: str | None) -> str:
             ]
         )
 
-    if nsys is not None and nsys["compare"]:
-        lines.extend(_compare_benchmark_lines(benchmark_argv, nsys["prefix"]))
-    else:
-        if nsys is not None:
-            benchmark_argv = [*nsys["prefix"], *benchmark_argv]
-        lines.append(_format_command(benchmark_argv))
+    lines.append(_format_command(benchmark_argv))
     lines.append("")
+    return "\n".join(lines)
+
+
+def _profile_script(nsys_prefix: list[Any]) -> str:
+    nsys_argv = [
+        *_variant_argv(nsys_prefix, "$PROFILE_DIR"),
+        "env",
+        "AUTO_BENCH_RUN_DIR=$PROFILE_DIR",
+        "bash",
+        "$SCRIPT_DIR/cmd.sh",
+    ]
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'PROFILE_DIR="$SCRIPT_DIR/profile"',
+        'mkdir -p "$PROFILE_DIR"',
+        'PROFILE_LOG_FILE="$PROFILE_DIR/profile.log"',
+        ': > "$PROFILE_LOG_FILE"',
+        'exec > >(tee -a "$PROFILE_LOG_FILE") 2>&1',
+        "",
+        _format_command(nsys_argv),
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -235,10 +331,18 @@ def _nsys_config(config: Any) -> dict[str, Any] | None:
         return None
     if config.get("enabled", True) is False:
         return None
-    prefix = _nsys_prefix(config)
+    prefix = [*_nsys_env_prefix(config), *_nsys_prefix(config)]
     if not prefix:
         return None
-    return {"prefix": prefix, "compare": bool(config.get("compare", False))}
+    return {"prefix": prefix}
+
+
+def _nsys_env_prefix(config: dict[str, Any]) -> list[str]:
+    env = config.get("env")
+    if not isinstance(env, dict) or not env:
+        return []
+    assignments = [f"{key}={value}" for key, value in env.items()]
+    return ["env", *assignments]
 
 
 def _nsys_prefix(config: dict[str, Any]) -> list[Any]:
@@ -249,62 +353,66 @@ def _nsys_prefix(config: dict[str, Any]) -> list[Any]:
         return command_prefix
 
     executable = config.get("executable", "nsys")
-    output = config.get("output", "$SCRIPT_DIR/nsys_trace")
-    trace = config.get("trace", "cuda,nvtx")
     prefix: list[Any] = [executable, "profile"]
-    force_overwrite = config.get("force_overwrite", True)
-    if force_overwrite is not None:
-        prefix.extend(["--force-overwrite", _shell_bool(force_overwrite)])
-    if trace is not None:
-        prefix.extend(["--trace", trace])
+    prefix.extend(_nsys_options(config))
     extra_args = config.get("args")
     if isinstance(extra_args, list):
         prefix.extend(extra_args)
-    if output is not None:
-        prefix.extend(["-o", output])
     return prefix
 
 
-def _shell_bool(value: Any) -> str:
+def _nsys_options(config: dict[str, Any]) -> list[str]:
+    reserved = {
+        "args",
+        "command_prefix",
+        "enabled",
+        "env",
+        "executable",
+        "options",
+    }
+    options: dict[str, Any] = {}
+    if "force_overwrite" not in config:
+        options["force_overwrite"] = True
+    if "trace" not in config:
+        options["trace"] = "cuda,nvtx"
+    if "output" not in config:
+        options["output"] = "$SCRIPT_DIR/nsys_trace"
+    nested = config.get("options")
+    if isinstance(nested, dict):
+        options.update(nested)
+    for name, value in config.items():
+        if name not in reserved:
+            options[name] = value
+
+    rendered: list[str] = []
+    for name, value in options.items():
+        if value is None or value is False:
+            continue
+        rendered.extend([_nsys_option_name(name), _nsys_value(value)])
+    return rendered
+
+
+def _nsys_option_name(name: str) -> str:
+    short_options = {
+        "capture_range": "-c",
+        "capture_range_end": "-e",
+        "force_overwrite": "-f",
+        "output": "-o",
+        "trace": "-t",
+    }
+    return short_options.get(name, f"--{name.replace('_', '-')}")
+
+
+def _nsys_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, list):
+        return ",".join(str(item) for item in value)
     return str(value)
 
 
-def _compare_benchmark_lines(
-    benchmark_argv: list[Any], nsys_prefix: list[Any]
-) -> list[str]:
-    baseline_argv = _variant_argv(benchmark_argv, "$BASELINE_DIR")
-    nsys_argv = [
-        *_variant_argv(nsys_prefix, "$NSYS_DIR"),
-        *_variant_argv(benchmark_argv, "$NSYS_DIR"),
-    ]
-    lines = [
-        'BASELINE_DIR="$SCRIPT_DIR/baseline"',
-        'NSYS_DIR="$SCRIPT_DIR/nsys"',
-        'mkdir -p "$BASELINE_DIR" "$NSYS_DIR"',
-        'BASELINE_LOG_FILE="$BASELINE_DIR/run.log"',
-        'NSYS_LOG_FILE="$NSYS_DIR/run.log"',
-        ': > "$BASELINE_LOG_FILE"',
-        ': > "$NSYS_LOG_FILE"',
-        "",
-    ]
-    lines.extend(
-        _logged_command_block(
-            'echo "auto-bench: running baseline"',
-            baseline_argv,
-            "$BASELINE_LOG_FILE",
-        )
-    )
-    lines.append("")
-    lines.extend(
-        _logged_command_block(
-            'echo "auto-bench: running nsys"',
-            nsys_argv,
-            "$NSYS_LOG_FILE",
-        )
-    )
-    return lines
+def _run_dir_argv(argv: list[Any]) -> list[str]:
+    return _variant_argv(argv, "$RUN_DIR")
 
 
 def _variant_argv(argv: list[Any], variant_dir: str) -> list[str]:
@@ -312,6 +420,9 @@ def _variant_argv(argv: list[Any], variant_dir: str) -> list[str]:
 
 
 def _variant_path(value: str, variant_dir: str) -> str:
+    if "=$SCRIPT_DIR/" in value:
+        name, path = value.split("=", 1)
+        return f"{name}={_variant_path(path, variant_dir)}"
     if not value.startswith("$SCRIPT_DIR/"):
         return value
     if _is_shared_case_path(value):
@@ -380,7 +491,11 @@ def _quote_args(argv: list[Any]) -> list[str]:
     parts: list[str] = []
     for arg in argv:
         text = str(arg)
-        if _is_script_dir_path(text):
+        env_assignment = _env_assignment_path(text)
+        if env_assignment is not None:
+            name, value = env_assignment
+            parts.append(f"{name}={_sh(value)}")
+        elif _is_script_dir_path(text):
             parts.append(f'"{text}"')
         else:
             parts.append(_sh(text))
@@ -394,8 +509,17 @@ def _sh(value: str) -> str:
 
 
 def _is_script_dir_path(value: str) -> bool:
-    shell_dirs = ("$SCRIPT_DIR", "$BASELINE_DIR", "$NSYS_DIR")
+    shell_dirs = ("$SCRIPT_DIR", "$RUN_DIR", "$PROFILE_DIR")
     return any(
         value == shell_dir or value.startswith(f"{shell_dir}/")
         for shell_dir in shell_dirs
     )
+
+
+def _env_assignment_path(value: str) -> tuple[str, str] | None:
+    if "=" not in value:
+        return None
+    name, path = value.split("=", 1)
+    if not name or not _is_script_dir_path(path):
+        return None
+    return name, path

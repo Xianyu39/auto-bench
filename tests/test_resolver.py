@@ -251,7 +251,6 @@ def test_top_level_nsys_is_resolved() -> None:
         {
             "metadata": {"name": "profile"},
             "nsys": {
-                "compare": True,
                 "output": "${runtime.run_dir}/nsys_trace",
             },
             "trtllm-bench": {
@@ -265,7 +264,6 @@ def test_top_level_nsys_is_resolved() -> None:
 
     case = result["cases"][0]
     assert case["nsys"] == {
-        "compare": True,
         "output": "$SCRIPT_DIR/nsys_trace",
     }
 
