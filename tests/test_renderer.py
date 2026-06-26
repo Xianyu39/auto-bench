@@ -42,6 +42,9 @@ def test_render_multi_case_directories_and_run_all(tmp_path: Path) -> None:
     assert (tmp_path / "case_one" / "cmd.sh").exists()
     assert (tmp_path / "case_two" / "cmd.sh").exists()
     assert (tmp_path / "run_all.sh").exists()
+    assert (tmp_path / "case_one" / "cmd.sh").stat().st_mode & 0o111
+    assert (tmp_path / "case_two" / "cmd.sh").stat().st_mode & 0o111
+    assert (tmp_path / "run_all.sh").stat().st_mode & 0o111
     run_all = (tmp_path / "run_all.sh").read_text()
     assert "case_one/cmd.sh" in run_all
     assert "sleep 15" in run_all
@@ -238,6 +241,9 @@ def test_render_multi_case_profile_all(tmp_path: Path) -> None:
 
     render_resolved(payload, tmp_path)
 
+    assert (tmp_path / "case_one" / "profile.sh").stat().st_mode & 0o111
+    assert (tmp_path / "case_two" / "profile.sh").stat().st_mode & 0o111
+    assert (tmp_path / "profile_all.sh").stat().st_mode & 0o111
     profile_all = (tmp_path / "profile_all.sh").read_text()
     assert "case_one/profile.sh" in profile_all
     assert "case_two/profile.sh" in profile_all

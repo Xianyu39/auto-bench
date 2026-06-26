@@ -1,3 +1,6 @@
+import subprocess
+import tomllib
+
 from auto_bench.cli import main
 from auto_bench.resolver import resolve
 from auto_bench.templates import get_template
@@ -12,7 +15,15 @@ def test_cli_version(capsys) -> None:
         main(["--version"])
     except SystemExit as exc:
         assert exc.code == 0
-    assert "auto-bench 0.1.9" in capsys.readouterr().out
+    assert "auto-bench 0.1.10" in capsys.readouterr().out
+
+
+def test_cli_has_ab_entrypoint_alias() -> None:
+    with open("pyproject.toml", "rb") as handle:
+        pyproject = tomllib.load(handle)
+
+    assert pyproject["project"]["scripts"]["auto-bench"] == "auto_bench.cli:main"
+    assert pyproject["project"]["scripts"]["ab"] == "auto_bench.cli:main"
 
 
 def test_cli_template_stdout(capsys) -> None:
@@ -76,6 +87,66 @@ trtllm-bench:
         == 0
     )
     assert "FAILED=0" in (output_dir / "run_all.sh").read_text()
+
+
+def test_cli_run_renders_and_executes_cmd(tmp_path, monkeypatch) -> None:
+    experiment = tmp_path / "experiment.yaml"
+    output_dir = tmp_path / "artifacts"
+    experiment.write_text(
+        """
+metadata:
+  name: run_cmd
+trtllm-bench:
+  model: llama
+  throughput:
+    dataset: /datasets/static.txt
+""".lstrip(),
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv, *, check):
+        calls.append(argv)
+        assert check is False
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert main(["run", str(experiment), "-o", str(output_dir)]) == 0
+
+    assert calls == [[str(output_dir / "cmd.sh")]]
+    assert (output_dir / "cmd.sh").exists()
+
+
+def test_cli_run_profile_executes_profile_script(tmp_path, monkeypatch) -> None:
+    experiment = tmp_path / "experiment.yaml"
+    output_dir = tmp_path / "artifacts"
+    experiment.write_text(
+        """
+metadata:
+  name: run_profile
+nsys:
+  sample: none
+trtllm-bench:
+  model: llama
+  throughput:
+    dataset: /datasets/static.txt
+""".lstrip(),
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv, *, check):
+        calls.append(argv)
+        assert check is False
+        return subprocess.CompletedProcess(argv, 7)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert main(["run", str(experiment), "-o", str(output_dir), "--profile"]) == 7
+
+    assert calls == [[str(output_dir / "profile.sh")]]
+    assert (output_dir / "profile.sh").exists()
 
 
 def test_cli_resolve_emits_warnings_to_stderr(tmp_path, capsys) -> None:

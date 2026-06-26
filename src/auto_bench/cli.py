@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -53,6 +54,32 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Render run_all.sh so failed cases are logged and later cases still run."
+        ),
+    )
+
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Render an experiment YAML and run the generated scripts.",
+    )
+    run_parser.add_argument("input", type=Path, help="Experiment YAML file.")
+    run_parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        default=Path("artifacts/rendered"),
+        help="Directory for rendered artifacts.",
+    )
+    run_parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Run generated profile.sh/profile_all.sh instead of cmd.sh/run_all.sh.",
+    )
+    run_parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help=(
+            "Render controller scripts so failed cases are logged and later "
+            "cases still run."
         ),
     )
 
@@ -130,6 +157,21 @@ def main(argv: list[str] | None = None) -> int:
             for case_dir in case_dirs:
                 sys.stdout.write(f"{case_dir}\n")
             return 0
+        if args.command == "run":
+            resolved = resolve_file(args.input)
+            _emit_warnings(resolved)
+            case_dirs = render_resolved(
+                resolved,
+                args.output_dir,
+                continue_on_error=args.continue_on_error,
+            )
+            script = _run_script_path(
+                args.output_dir,
+                case_dirs,
+                profile=args.profile,
+            )
+            completed = subprocess.run([str(script)], check=False)
+            return int(completed.returncode)
         if args.command in {"collect_results", "collect-results"}:
             rows = collect_results(args.artifact_dir, args.framework)
             rendered = render_results(rows, args.format)
@@ -150,6 +192,20 @@ def main(argv: list[str] | None = None) -> int:
     except AutobenchError as exc:
         parser.exit(2, f"auto-bench: error: {exc}\n")
     return 0
+
+
+def _run_script_path(root: Path, case_dirs: list[Path], *, profile: bool) -> Path:
+    if len(case_dirs) == 1:
+        script = case_dirs[0] / ("profile.sh" if profile else "cmd.sh")
+    else:
+        script = root / ("profile_all.sh" if profile else "run_all.sh")
+    if not script.exists():
+        if profile:
+            raise AutobenchError(
+                f"{script}: missing profile script; add top-level nsys config first"
+            )
+        raise AutobenchError(f"{script}: missing run script")
+    return script
 
 
 def _emit_warnings(resolved: dict[str, object]) -> None:

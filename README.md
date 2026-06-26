@@ -36,10 +36,11 @@ uvx --from "git+https://github.com/Xianyu39/auto-bench.git@main" auto-bench --he
 ```bash
 auto-bench --help
 auto-bench --version
+ab --help
 ```
 
 如果需要可复现安装，建议把 `@main` 替换成具体 release tag，例如
-`@v0.1.9`。
+`@v0.1.10`。
 
 ## 快速开始
 
@@ -61,6 +62,21 @@ auto-bench resolve my_decode.yaml -o resolved.yaml
 
 ```bash
 auto-bench render my_decode.yaml -o artifacts/my_decode
+```
+
+`render` 是 dry run：它只写出脚本和配置，不会运行 benchmark。生成的
+`cmd.sh`、`profile.sh`、`run_all.sh` 和 `profile_all.sh` 都会自动带执行权限。
+
+一键渲染并运行：
+
+```bash
+auto-bench run my_decode.yaml -o artifacts/my_decode
+```
+
+如果 YAML 配置了顶层 `nsys`，一键渲染并运行 profile：
+
+```bash
+auto-bench run my_decode.yaml -o artifacts/my_decode --profile
 ```
 
 如果 YAML 只解析出一个 case，输出目录中会直接生成：
@@ -89,13 +105,13 @@ artifacts/my_decode/
 运行单个 case：
 
 ```bash
-bash artifacts/my_decode/decode_sweep__vars.batch_size=1__trtllm-bench.throughput.isl=128/cmd.sh
+./artifacts/my_decode/decode_sweep__vars.batch_size=1__trtllm-bench.throughput.isl=128/cmd.sh
 ```
 
 运行全部 case：
 
 ```bash
-bash artifacts/my_decode/run_all.sh
+./artifacts/my_decode/run_all.sh
 ```
 
 每个 `cmd.sh` 都会把 stdout/stderr 同时输出到终端和同目录下的 `run.log`。
@@ -544,6 +560,10 @@ cases:
 - `profile_all.sh`：多 case 且存在 nsys case 时生成，只按顺序运行各 case 的
   `profile.sh`。
 - `run.log`：执行脚本时产生，不是 render 阶段生成。
+
+`render` 只生成产物，不执行 benchmark；生成的 shell 脚本都会自动设置执行权限。
+需要渲染后立即运行时，可以使用 `auto-bench run`。加 `--profile` 时会运行
+`profile.sh` 或 `profile_all.sh`，否则运行 `cmd.sh` 或 `run_all.sh`。
 
 每个 `cmd.sh` 做的事情：
 
