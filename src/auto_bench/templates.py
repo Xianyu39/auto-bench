@@ -89,6 +89,19 @@ def prefill_template() -> dict[str, Any]:
                 "sweep": [1, 2, 4, 8, 16, 32],
             },
         },
+        "nsys": {
+            "env": {
+                "NSYS_STATS_PATH": "${runtime.run_dir}/stats",
+                "CUDA_VISIBLE_DEVICES": 0,
+                "TLLM_PROFILE_START_STOP": "10-20",
+            },
+            "output": "${runtime.run_dir}/nsys_trace",
+            "force_overwrite": True,
+            "trace": ["cuda", "nvtx"],
+            "capture_range": "cudaProfilerApi",
+            "trace_fork_before_exec": True,
+            "cuda-graph-trace": "node",
+        },
         "trtllm-bench": {
             "model": "meta-llama/Llama-2-7b-hf",
             "model_path": "/mnt/engines/llama2-7b",

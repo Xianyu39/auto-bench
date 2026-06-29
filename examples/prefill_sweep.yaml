@@ -17,12 +17,13 @@ nsys:
   env:
     NSYS_STATS_PATH: "${runtime.run_dir}/stats"
     CUDA_VISIBLE_DEVICES: 0
+    TLLM_PROFILE_START_STOP: 10-20
   output: "${runtime.run_dir}/nsys_trace"      # -o
   force_overwrite: true                       # -f
   trace: [cuda, nvtx]                         # -t cuda,nvtx
   capture_range: cudaProfilerApi              # -c
-  capture_range_end: stop-shutdown            # -e
   trace_fork_before_exec: true                # --trace-fork-before-exec true
+  cuda-graph-trace: node
 
 trtllm-bench:
   model: meta-llama/Llama-2-7b-hf

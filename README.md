@@ -40,7 +40,7 @@ ab --help
 ```
 
 如果需要可复现安装，建议把 `@main` 替换成具体 release tag，例如
-`@v0.1.10`。
+`@v0.1.11`。
 
 ## 快速开始
 
@@ -139,7 +139,16 @@ vars:
     sweep: [1, 4]
 
 nsys:
+  env:
+    NSYS_STATS_PATH: "${runtime.run_dir}/stats"
+    CUDA_VISIBLE_DEVICES: 0
+    TLLM_PROFILE_START_STOP: 10-20
   output: "${runtime.run_dir}/nsys_trace"
+  force_overwrite: true
+  trace: [cuda, nvtx]
+  capture_range: cudaProfilerApi
+  trace_fork_before_exec: true
+  cuda-graph-trace: node
 
 trtllm-bench:
   model: meta-llama/Llama-2-7b-hf
@@ -228,16 +237,16 @@ nsys profile -f true -t cuda,nvtx -o "$PROFILE_DIR/nsys_trace" \
 
 ```yaml
 nsys:
-  enabled: true
   env:
-    NSYS_NVTX_PROFILER_REGISTER_ONLY: 0
-  trace: [cuda, nvtx, osrt]
+    NSYS_STATS_PATH: "${runtime.run_dir}/stats"
+    CUDA_VISIBLE_DEVICES: 0
+    TLLM_PROFILE_START_STOP: 10-20
+  output: "${runtime.run_dir}/nsys_trace"      # -o
   force_overwrite: true
-  sample: none
-  capture_range: cudaProfilerApi
-  capture_range_end: stop-shutdown
-  trace_fork_before_exec: true
-  output: "${runtime.run_dir}/nsys_trace"
+  trace: [cuda, nvtx]                         # -t cuda,nvtx
+  capture_range: cudaProfilerApi              # -c
+  trace_fork_before_exec: true                # --trace-fork-before-exec true
+  cuda-graph-trace: node
 ```
 
 启用 `nsys` 时，render 会额外生成 `profile.sh`。`cmd.sh` 始终执行普通
@@ -247,7 +256,7 @@ benchmark；`profile.sh` 使用 nsys 包裹 `cmd.sh`，并把该次运行的 `ru
 `env` 会作为只注入给 nsys 命令的环境变量。`nsys` 下除
 `enabled`、`env`、`output` 等保留字段外，
 其它字段会自动渲染成 nsys 参数，例如 `capture_range` 会变成
-`--capture-range`，布尔值会渲染为 `true`/`false`，列表会用逗号连接。
+`-c`，布尔值会渲染为 `true`/`false`，列表会用逗号连接。
 常用字段会使用 nsys 的短参数：`output -> -o`、`force_overwrite -> -f`、
 `trace -> -t`、`capture_range -> -c`、`capture_range_end -> -e`。
 也可以把参数放在 `options` 下：

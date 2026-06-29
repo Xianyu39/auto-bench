@@ -53,7 +53,16 @@ vars:
     sweep: [1, 2, 4, 8]
 
 nsys:
+  env:
+    NSYS_STATS_PATH: "${runtime.run_dir}/stats"
+    CUDA_VISIBLE_DEVICES: 0
+    TLLM_PROFILE_START_STOP: 10-20
   output: "${runtime.run_dir}/nsys_trace"
+  force_overwrite: true
+  trace: [cuda, nvtx]
+  capture_range: cudaProfilerApi
+  trace_fork_before_exec: true
+  cuda-graph-trace: node
 
 trtllm-bench:
   model: meta-llama/Llama-2-7b-hf
@@ -175,14 +184,15 @@ Example:
 ```yaml
 nsys:
   env:
-    NSYS_NVTX_PROFILER_REGISTER_ONLY: 0
-  trace: [cuda, nvtx, osrt]
-  force_overwrite: true
-  sample: none
-  capture_range: cudaProfilerApi
-  capture_range_end: stop-shutdown
-  trace_fork_before_exec: true
+    NSYS_STATS_PATH: "${runtime.run_dir}/stats"
+    CUDA_VISIBLE_DEVICES: 0
+    TLLM_PROFILE_START_STOP: 10-20
   output: "${runtime.run_dir}/nsys_trace"
+  force_overwrite: true
+  capture_range: cudaProfilerApi
+  trace: [cuda, nvtx]
+  trace_fork_before_exec: true
+  cuda-graph-trace: node
 ```
 
 When `nsys` is enabled, rendering creates both `cmd.sh` and `profile.sh`.

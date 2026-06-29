@@ -15,7 +15,7 @@ def test_cli_version(capsys) -> None:
         main(["--version"])
     except SystemExit as exc:
         assert exc.code == 0
-    assert "auto-bench 0.1.10" in capsys.readouterr().out
+    assert "auto-bench 0.1.11" in capsys.readouterr().out
 
 
 def test_cli_has_ab_entrypoint_alias() -> None:
@@ -33,8 +33,11 @@ def test_cli_template_stdout(capsys) -> None:
     assert "min_mhz: 1400" in output
     assert "tp: 4" in output
     assert "backend: pytorch" in output
+    assert "NSYS_STATS_PATH: ${runtime.run_dir}/stats" in output
+    assert "CUDA_VISIBLE_DEVICES: 0" in output
+    assert "TLLM_PROFILE_START_STOP: 10-20" in output
+    assert "cuda-graph-trace: node" in output
     assert "iteration_log: ${runtime.run_dir}/iter.log" in output
-    assert "CUDA_VISIBLE_DEVICES" not in output
 
 
 def test_prefill_template_resolves() -> None:
@@ -46,6 +49,10 @@ def test_prefill_template_resolves() -> None:
     assert case["trtllm-bench"]["throughput"]["backend"] == "pytorch"
     assert case["trtllm-bench"]["throughput"]["max_num_tokens"] == 1025
     assert case["trtllm-bench"]["throughput"]["iteration_log"] == "$SCRIPT_DIR/iter.log"
+    assert case["nsys"]["env"]["NSYS_STATS_PATH"] == "$SCRIPT_DIR/stats"
+    assert case["nsys"]["env"]["CUDA_VISIBLE_DEVICES"] == 0
+    assert case["nsys"]["env"]["TLLM_PROFILE_START_STOP"] == "10-20"
+    assert case["nsys"]["cuda-graph-trace"] == "node"
 
 
 def test_cli_template_output_file(tmp_path) -> None:
