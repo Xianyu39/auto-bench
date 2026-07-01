@@ -39,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     render_parser = subparsers.add_parser(
         "render",
+        aliases=["plan"],
         help="Render an experiment YAML into cmd.sh and config.yaml artifacts.",
     )
     render_parser.add_argument("input", type=Path, help="Experiment YAML file.")
@@ -146,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(rendered, encoding="utf-8")
             return 0
-        if args.command == "render":
+        if args.command in {"render", "plan"}:
             resolved = resolve_file(args.input)
             _emit_warnings(resolved)
             case_dirs = render_resolved(

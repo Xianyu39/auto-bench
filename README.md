@@ -62,9 +62,11 @@ auto-bench resolve my_decode.yaml -o resolved.yaml
 
 ```bash
 auto-bench render my_decode.yaml -o artifacts/my_decode
+# Same as render, for plan-first workflows:
+auto-bench plan my_decode.yaml -o artifacts/my_decode
 ```
 
-`render` 是 dry run：它只写出脚本和配置，不会运行 benchmark。生成的
+`render` / `plan` 是 dry run：它只写出脚本和配置，不会运行 benchmark。生成的
 `cmd.sh`、`profile.sh`、`run_all.sh` 和 `profile_all.sh` 都会自动带执行权限。
 
 一键渲染并运行：

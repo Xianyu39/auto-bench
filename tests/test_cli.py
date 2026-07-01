@@ -96,6 +96,27 @@ trtllm-bench:
     assert "FAILED=0" in (output_dir / "run_all.sh").read_text()
 
 
+def test_cli_plan_alias_renders_artifacts(tmp_path) -> None:
+    experiment = tmp_path / "experiment.yaml"
+    output_dir = tmp_path / "artifacts"
+    experiment.write_text(
+        """
+metadata:
+  name: plan_alias
+trtllm-bench:
+  model: llama
+  throughput:
+    dataset: /datasets/static.txt
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    assert main(["plan", str(experiment), "-o", str(output_dir)]) == 0
+
+    assert (output_dir / "cmd.sh").exists()
+    assert (output_dir / "resolved.yaml").exists()
+
+
 def test_cli_run_renders_and_executes_cmd(tmp_path, monkeypatch) -> None:
     experiment = tmp_path / "experiment.yaml"
     output_dir = tmp_path / "artifacts"
