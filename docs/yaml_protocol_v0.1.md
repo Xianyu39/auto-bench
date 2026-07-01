@@ -308,6 +308,25 @@ After expansion, `vars.batch_size` is a scalar in each resolved case.
 A mapping is treated as a sweep object only when it has exactly one key,
 `sweep`. The value of `sweep` must be a non-empty list.
 
+### Cases
+
+A cases field expands the experiment into fixed mapping combinations.
+
+```yaml
+vars:
+  profile:
+    cases:
+      - batch_size: 1
+        isl: 128
+      - batch_size: 4
+        isl: 256
+```
+
+After expansion, `vars.profile` is the selected mapping in each resolved case.
+
+A mapping is treated as a cases object only when it has exactly one key,
+`cases`. The value of `cases` must be a non-empty list of non-empty mappings.
+
 ### Expression
 
 An expression is a string whose entire value is a single `${...}` block.
@@ -518,11 +537,38 @@ trtllm-bench:
 
 This produces `2 * 3 = 6` cases.
 
+Fixed parameter combinations can be expressed with `cases`. A mapping is treated
+as a cases object only when it has exactly one key, `cases`. The value of
+`cases` must be a non-empty list of non-empty mappings.
+
+```yaml
+vars:
+  profile:
+    cases:
+      - batch_size: 1
+        isl: 128
+      - batch_size: 4
+        isl: 256
+
+trtllm-bench:
+  throughput:
+    max_batch_size: "${vars.profile.batch_size}"
+    isl: "${vars.profile.isl}"
+```
+
+This produces 2 cases, not a Cartesian product between `batch_size` and `isl`.
+For each expanded case, the whole `cases` object is replaced by the selected
+mapping.
+
+`cases` participates as one expansion dimension. If the example above also had
+`backend: {sweep: [pytorch, tensorrt]}`, it would produce `2 * 2 = 4` cases.
+
 Expansion order must be deterministic:
 
-1. Traverse `metadata`, `vars`, and `trtllm-bench` in YAML order.
-2. Collect sweep fields in that order.
-3. Expand Cartesian products in collected order.
+1. Traverse `metadata`, `vars`, `nsys`, and `trtllm-bench` in YAML order.
+2. Collect `sweep` and `cases` fields in that order.
+3. Expand Cartesian products in collected order, treating each `cases` entry as
+   one product value.
 
 The resolved `case_id` should be stable for the same input. The recommended
 format is:
@@ -537,6 +583,13 @@ Example:
 llama2_7b_decode__vars.batch_size=4__trtllm.throughput.isl=128
 ```
 
+For `cases`, the case id must expand the selected mapping fields in mapping
+order:
+
+```text
+llama2_7b_decode__vars.profile.batch_size=1__vars.profile.isl=128
+```
+
 If `metadata.name` is missing, the resolver must use a deterministic fallback
 such as `experiment`.
 
@@ -545,11 +598,14 @@ such as `experiment`.
 A resolver must process the input in this order:
 
 1. Parse YAML.
-2. Validate that the only top-level keys are `metadata`, `vars`, and `trtllm-bench`.
+2. Validate that the only top-level keys are `metadata`, `vars`, `nsys`, and
+   `trtllm-bench`.
 3. Load the fixed TensorRT-LLM benchmark parameter manifest.
-4. Collect all sweep fields from `metadata`, `vars`, and `trtllm-bench`.
-5. Expand the Cartesian product of sweep values.
-6. For each expanded case, replace sweep objects with the current scalar values.
+4. Collect all `sweep` and `cases` fields from `metadata`, `vars`, `nsys`, and
+   `trtllm-bench`.
+5. Expand the Cartesian product of collected expansion values.
+6. For each expanded case, replace `sweep` objects with the current scalar
+   values and `cases` objects with the current selected mapping.
 7. Evaluate expressions and string interpolations.
 8. Resolve managed `<command>.dataset` objects into dataset paths and
    prepare-dataset commands.
@@ -559,8 +615,8 @@ A resolver must process the input in this order:
 11. Render benchmark commands, including parameters not present in the manifest.
 12. Emit resolved cases.
 
-Resolved cases must not contain `sweep` objects, managed dataset objects,
-managed config objects, or unresolved `${...}` expressions.
+Resolved cases must not contain `sweep` or `cases` objects, managed dataset
+objects, managed config objects, or unresolved `${...}` expressions.
 
 ## Resolved Case Output
 
@@ -789,6 +845,8 @@ The resolver must fail the whole YAML file on any of the following errors:
 - Unknown top-level section.
 - Missing `metadata` or `trtllm-bench` section.
 - Empty or non-list `sweep`.
+- Empty or non-list `cases`.
+- `cases` item that is not a non-empty mapping.
 - Invalid managed dataset object.
 - Unknown managed dataset generator.
 - Unknown managed dataset generator argument.
@@ -797,6 +855,7 @@ The resolver must fail the whole YAML file on any of the following errors:
 - Expression syntax error.
 - Reference to a nonexistent path.
 - Reference to an unresolved sweep object.
+- Reference to an unresolved cases object.
 - Use of a forbidden expression operator, function, import, or attribute.
 - Type mismatch after expression evaluation.
 - Remaining unresolved `${...}` expression in resolved output.
@@ -970,6 +1029,9 @@ Future parser tests should cover:
 
 - A single static configuration resolves into one complete case.
 - Two sweep fields expand into a Cartesian product.
+- A `cases` field expands fixed mapping combinations without taking a Cartesian
+  product across fields inside the selected mapping.
+- `cases` can combine with `sweep` as one Cartesian product dimension.
 - Sweep fields under `vars` can be referenced by `trtllm-bench` expressions.
 - `vars` fields are preserved in resolved output but not rendered as CLI
   options.
@@ -985,8 +1047,8 @@ Future parser tests should cover:
 - Unknown `trtllm-bench` parameters are preserved and rendered.
 - Missing benchmark parameters do not fail resolver validation.
 - Expressions referencing nonexistent paths fail validation.
-- Resolved output contains no `sweep` objects, managed dataset objects, managed
-  config objects, or unresolved expressions.
+- Resolved output contains no `sweep` or `cases` objects, managed dataset
+  objects, managed config objects, or unresolved expressions.
 
 ## Not Supported In v0.1
 
@@ -995,7 +1057,7 @@ The following features are intentionally out of scope for v0.1:
 - A separate `computed` section.
 - A separate `constraints` section.
 - Complex include/exclude filtering.
-- Nested matrix or paired sweep semantics.
+- Nested matrix semantics.
 - Arbitrary Python expressions.
 - Runtime TensorRT-LLM version switching.
 - Passing autobench YAML directly to TensorRT-LLM as a full replacement for CLI

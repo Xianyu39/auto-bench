@@ -39,6 +39,14 @@ NSYS_SECTION = "nsys"
 class SweepField:
     path: tuple[str, ...]
     values: Sequence[Any]
+    expand_case_id_fields: bool = False
+
+
+@dataclass(frozen=True)
+class Assignment:
+    path: tuple[str, ...]
+    value: Any
+    case_id_values: tuple[tuple[tuple[str, ...], Any], ...]
 
 
 @dataclass(frozen=True)
@@ -143,7 +151,21 @@ def _collect_sweeps(data: Mapping[str, Any]) -> list[SweepField]:
                 )
             fields.append(SweepField(path, values))
             return
-        if isinstance(value, dict):
+        if _is_cases(value):
+            cases = value["cases"]
+            if not isinstance(cases, list) or not cases:
+                raise ProtocolError(
+                    f"{_format_path(path)}: cases must be non-empty list"
+                )
+            for index, item in enumerate(cases):
+                if not isinstance(item, Mapping) or not item:
+                    raise ProtocolError(
+                        f"{_format_path((*path, str(index)))}: "
+                        "cases item must be non-empty mapping"
+                    )
+            fields.append(SweepField(path, cases, expand_case_id_fields=True))
+            return
+        if isinstance(value, Mapping):
             for key, item in value.items():
                 walk(item, (*path, str(key)))
         elif isinstance(value, list):
@@ -159,22 +181,29 @@ def _collect_sweeps(data: Mapping[str, Any]) -> list[SweepField]:
     return fields
 
 
-def _assignments(sweeps: list[SweepField]) -> list[dict[tuple[str, ...], Any]]:
+def _assignments(sweeps: list[SweepField]) -> list[list[Assignment]]:
     if not sweeps:
-        return [{}]
+        return [[]]
     products = itertools.product(*(sweep.values for sweep in sweeps))
     return [
-        {sweep.path: value for sweep, value in zip(sweeps, values, strict=True)}
+        [
+            Assignment(
+                path=sweep.path,
+                value=value,
+                case_id_values=_case_id_values(sweep, value),
+            )
+            for sweep, value in zip(sweeps, values, strict=True)
+        ]
         for values in products
     ]
 
 
 def _resolve_case(
-    raw: Mapping[str, Any], assignment: Mapping[tuple[str, ...], Any]
+    raw: Mapping[str, Any], assignment: Sequence[Assignment]
 ) -> dict[str, Any]:
     case_data = copy.deepcopy(dict(raw))
-    for path, value in assignment.items():
-        _set_path(case_data, path, value)
+    for item in assignment:
+        _set_path(case_data, item.path, item.value)
 
     context = {
         "metadata": case_data["metadata"],
@@ -539,15 +568,14 @@ def _render_option(name: str, value: Any, value_taking_bool: bool) -> list[str]:
     return [option, str(value)]
 
 
-def _case_id(
-    metadata: Mapping[str, Any], assignment: Mapping[tuple[str, ...], Any]
-) -> str:
+def _case_id(metadata: Mapping[str, Any], assignment: Sequence[Assignment]) -> str:
     base = slug(metadata.get("name", "experiment"))
     if not assignment:
         return base
     parts = [
         f"{'.'.join(path)}={slug(value)}"
-        for path, value in assignment.items()
+        for item in assignment
+        for path, value in item.case_id_values
     ]
     return "__".join([base, *parts])
 
@@ -555,9 +583,11 @@ def _case_id(
 def _assert_no_unresolved(value: Any, path: str = "") -> None:
     if _is_sweep(value):
         raise ProtocolError(f"{path}: unresolved sweep object")
+    if _is_cases(value):
+        raise ProtocolError(f"{path}: unresolved cases object")
     if isinstance(value, str) and "${" in value:
         raise ProtocolError(f"{path}: unresolved expression")
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         for key, item in value.items():
             _assert_no_unresolved(item, f"{path}.{key}" if path else str(key))
     elif isinstance(value, list):
@@ -566,7 +596,21 @@ def _assert_no_unresolved(value: Any, path: str = "") -> None:
 
 
 def _is_sweep(value: Any) -> bool:
-    return isinstance(value, dict) and set(value) == {"sweep"}
+    return isinstance(value, Mapping) and set(value) == {"sweep"}
+
+
+def _is_cases(value: Any) -> bool:
+    return isinstance(value, Mapping) and set(value) == {"cases"}
+
+
+def _case_id_values(
+    sweep: SweepField, value: Any
+) -> tuple[tuple[tuple[str, ...], Any], ...]:
+    if not sweep.expand_case_id_fields:
+        return ((sweep.path, value),)
+    if not isinstance(value, Mapping):
+        return ((sweep.path, value),)
+    return tuple(((*sweep.path, str(key)), item) for key, item in value.items())
 
 
 def _set_path(data: dict[str, Any], path: tuple[str, ...], value: Any) -> None:

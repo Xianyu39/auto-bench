@@ -171,4 +171,6 @@ def _resolve_path(value: Any, attrs: list[str], path: str) -> Any:
         current = current[attr]
     if isinstance(current, Mapping) and set(current) == {"sweep"}:
         raise ProtocolError(f"{path}: reference points to unresolved sweep object")
+    if isinstance(current, Mapping) and set(current) == {"cases"}:
+        raise ProtocolError(f"{path}: reference points to unresolved cases object")
     return current

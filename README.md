@@ -40,7 +40,7 @@ ab --help
 ```
 
 如果需要可复现安装，建议把 `@main` 替换成具体 release tag，例如
-`@v0.1.11`。
+`@v0.1.12`。
 
 ## 快速开始
 
@@ -358,7 +358,8 @@ manifest 中定义的 CLI 拼写，例如 `iteration_log` 会渲染为
 
 ## Sweep 与表达式
 
-任意 `metadata`、`vars`、`trtllm-bench` 下的字段都可以写成 sweep：
+任意 `metadata`、`vars`、`nsys`、`trtllm-bench` 下的字段都可以写成
+sweep：
 
 ```yaml
 vars:
@@ -376,6 +377,34 @@ trtllm-bench:
 
 ```text
 <metadata.name>__<path>=<value>__<path>=<value>
+```
+
+如果需要固定参数组合，而不是让多个字段互相展开成笛卡尔积，可以使用
+`cases`。`cases` 的每个条目必须是非空 mapping：
+
+```yaml
+vars:
+  profile:
+    cases:
+      - batch_size: 1
+        isl: 128
+      - batch_size: 4
+        isl: 256
+
+trtllm-bench:
+  throughput:
+    max_batch_size: "${vars.profile.batch_size}"
+    dataset:
+      input_mean: "${vars.profile.isl}"
+```
+
+这会生成 2 个 case：`(batch_size=1, isl=128)` 和
+`(batch_size=4, isl=256)`。`cases` 本身作为一个 sweep 维度参与展开，所以仍然
+可以和普通 `sweep` 组合；例如再加一个 `backend.sweep: [pytorch, tensorrt]`
+会生成 `2 * 2 = 4` 个 case。`cases` 生成的 case id 会展开条目字段，例如：
+
+```text
+<metadata.name>__vars.profile.batch_size=1__vars.profile.isl=128
 ```
 
 表达式使用 `${...}`：

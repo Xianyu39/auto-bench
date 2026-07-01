@@ -75,6 +75,123 @@ def test_resolve_sweeps_dataset_config_and_commands() -> None:
     assert argv[argv.index("--streaming")] == "--streaming"
 
 
+def test_resolve_cases_fixed_combinations() -> None:
+    result = resolve(
+        {
+            "metadata": {"name": "profile_cases"},
+            "vars": {
+                "profile": {
+                    "cases": [
+                        {"batch_size": 1, "isl": 128},
+                        {"batch_size": 4, "isl": 256},
+                    ],
+                },
+            },
+            "trtllm-bench": {
+                "model": "llama",
+                "throughput": {
+                    "dataset": "/datasets/static.txt",
+                    "max_batch_size": "${vars.profile.batch_size}",
+                    "isl": "${vars.profile.isl}",
+                },
+            },
+        }
+    )
+
+    cases = result["cases"]
+    assert len(cases) == 2
+    assert (
+        cases[0]["case_id"]
+        == "profile_cases__vars.profile.batch_size=1__vars.profile.isl=128"
+    )
+    assert (
+        cases[1]["case_id"]
+        == "profile_cases__vars.profile.batch_size=4__vars.profile.isl=256"
+    )
+    assert cases[0]["vars"]["profile"] == {"batch_size": 1, "isl": 128}
+    assert cases[0]["trtllm-bench"]["throughput"]["max_batch_size"] == 1
+    assert cases[0]["trtllm-bench"]["throughput"]["isl"] == 128
+    assert cases[1]["trtllm-bench"]["throughput"]["max_batch_size"] == 4
+    assert cases[1]["trtllm-bench"]["throughput"]["isl"] == 256
+
+
+def test_cases_combine_with_sweeps_at_group_level() -> None:
+    result = resolve(
+        {
+            "metadata": {"name": "profile_backend"},
+            "vars": {
+                "profile": {
+                    "cases": [
+                        {"batch_size": 1, "isl": 128},
+                        {"batch_size": 4, "isl": 256},
+                    ],
+                },
+            },
+            "trtllm-bench": {
+                "model": "llama",
+                "throughput": {
+                    "backend": {"sweep": ["pytorch", "tensorrt"]},
+                    "dataset": "/datasets/static.txt",
+                    "max_batch_size": "${vars.profile.batch_size}",
+                    "isl": "${vars.profile.isl}",
+                },
+            },
+        }
+    )
+
+    assert [case["case_id"] for case in result["cases"]] == [
+        "profile_backend__vars.profile.batch_size=1__vars.profile.isl=128"
+        "__trtllm-bench.throughput.backend=pytorch",
+        "profile_backend__vars.profile.batch_size=1__vars.profile.isl=128"
+        "__trtllm-bench.throughput.backend=tensorrt",
+        "profile_backend__vars.profile.batch_size=4__vars.profile.isl=256"
+        "__trtllm-bench.throughput.backend=pytorch",
+        "profile_backend__vars.profile.batch_size=4__vars.profile.isl=256"
+        "__trtllm-bench.throughput.backend=tensorrt",
+    ]
+    assert [
+        (
+            case["vars"]["profile"]["batch_size"],
+            case["trtllm-bench"]["throughput"]["backend"],
+        )
+        for case in result["cases"]
+    ] == [
+        (1, "pytorch"),
+        (1, "tensorrt"),
+        (4, "pytorch"),
+        (4, "tensorrt"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("cases", "match"),
+    [
+        ([], "vars.profile: cases must be non-empty list"),
+        ("bad", "vars.profile: cases must be non-empty list"),
+        ([1], "vars.profile.0: cases item must be non-empty mapping"),
+        ([{}], "vars.profile.0: cases item must be non-empty mapping"),
+    ],
+)
+def test_invalid_cases_errors(cases: object, match: str) -> None:
+    with pytest.raises(ProtocolError, match=match):
+        resolve(
+            {
+                "metadata": {"name": "bad_cases"},
+                "vars": {
+                    "profile": {
+                        "cases": cases,
+                    },
+                },
+                "trtllm-bench": {
+                    "model": "llama",
+                    "throughput": {
+                        "dataset": "/datasets/static.txt",
+                    },
+                },
+            }
+        )
+
+
 def test_user_managed_dataset_and_config_path() -> None:
     result = resolve(
         {
