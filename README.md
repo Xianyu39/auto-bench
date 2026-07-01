@@ -253,12 +253,16 @@ nsys:
 benchmark；`profile.sh` 使用 nsys 包裹 `cmd.sh`，并把该次运行的 `run.log`、
 `iter.log` 和其它由 `runtime.run_dir` 生成的输出写到 `profile/` 目录下，避免覆盖
 普通运行。`config.yaml` 和 `datasets/` 这类共享输入仍保留在 case 根目录。
-`env` 会作为只注入给 nsys 命令的环境变量。`nsys` 下除
+`env` 会作为只注入给 nsys 命令的环境变量，渲染成 nsys 的 `-e KEY=VALUE`
+参数。`nsys` 下除
 `enabled`、`env`、`output` 等保留字段外，
 其它字段会自动渲染成 nsys 参数，例如 `capture_range` 会变成
 `-c`，布尔值会渲染为 `true`/`false`，列表会用逗号连接。
-常用字段会使用 nsys 的短参数：`output -> -o`、`force_overwrite -> -f`、
-`trace -> -t`、`capture_range -> -c`、`capture_range_end -> -e`。
+已知 nsys profile 短参数会按官方 CLI 映射渲染：`backtrace -> -b`、
+`capture_range -> -c`、`delay -> -y`、`duration -> -d`、`env -> -e`、
+`force_overwrite -> -f`、`inherit_environment -> -n`、`nvtx_capture -> -p`、
+`output -> -o`、`sample -> -s`、`show_output -> -w`、`start_later -> -Y`、
+`stop_on_exit -> -x`、`trace -> -t`。
 也可以把参数放在 `options` 下：
 
 ```yaml

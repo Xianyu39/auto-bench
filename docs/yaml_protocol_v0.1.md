@@ -157,8 +157,8 @@ nsys profile -f true -t cuda,nvtx -o "$SCRIPT_DIR/nsys_trace"
 The mapping supports:
 
 - `enabled`: optional boolean, defaults to `true`.
-- `env`: optional mapping of environment variables injected only into the nsys
-  command.
+- `env`: optional mapping of environment variables injected into the nsys
+  command as `-e KEY=VALUE` options.
 - `executable`: optional command name, defaults to `nsys`.
 - `output`: optional trace output path, defaults to `$SCRIPT_DIR/nsys_trace`.
 - `trace`: optional value for `--trace`, defaults to `cuda,nvtx`. A list is
@@ -170,11 +170,14 @@ The mapping supports:
 - Any non-reserved field under `nsys` is also rendered as an nsys option. For
   example, `capture_range: cudaProfilerApi` renders as
   `-c cudaProfilerApi`.
-- Common options use nsys short flags: `output -> -o`,
-  `force_overwrite -> -f`, `trace -> -t`, `capture_range -> -c`, and
-  `capture_range_end -> -e`. Other option names render as long flags with
-  underscores converted to hyphens, such as
-  `trace_fork_before_exec -> --trace-fork-before-exec`.
+- Known nsys profile short flags are rendered according to the official CLI:
+  `backtrace -> -b`, `capture_range -> -c`, `delay -> -y`, `duration -> -d`,
+  `env -> -e`, `force_overwrite -> -f`, `inherit_environment -> -n`,
+  `nvtx_capture -> -p`, `output -> -o`, `sample -> -s`,
+  `show_output -> -w`, `start_later -> -Y`, `stop_on_exit -> -x`, and
+  `trace -> -t`. Other option names render as long flags with underscores
+  converted to hyphens, such as `trace_fork_before_exec ->
+  --trace-fork-before-exec`.
 - `args`: optional list of raw extra nsys arguments inserted before `-o`.
 - `command_prefix`: optional full command prefix as a string or list. When set,
   it replaces the generated prefix.

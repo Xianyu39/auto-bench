@@ -129,16 +129,15 @@ def test_render_nsys_wraps_benchmark_command(tmp_path: Path) -> None:
     profile_text = profile.read_text()
     assert 'PROFILE_DIR="$SCRIPT_DIR/profile"' in profile_text
     assert 'PROFILE_LOG_FILE="$PROFILE_DIR/profile.log"' in profile_text
-    assert "env \\" in profile_text
-    assert "  CUDA_VISIBLE_DEVICES=0 \\" in profile_text
-    assert '  NSYS_OUTPUT_DIR="$PROFILE_DIR/nsys_env" \\' in profile_text
-    assert "  nsys \\" in profile_text
+    assert "nsys \\" in profile_text
     assert "  profile \\" in profile_text
+    assert "  -e CUDA_VISIBLE_DEVICES=0 \\" in profile_text
+    assert '  -e NSYS_OUTPUT_DIR="$PROFILE_DIR/nsys_env" \\' in profile_text
     assert "  -f true \\" in profile_text
     assert "  -t cuda,nvtx,osrt \\" in profile_text
-    assert "  --sample none \\" in profile_text
+    assert "  -s none \\" in profile_text
     assert "  -c cudaProfilerApi \\" in profile_text
-    assert "  -e stop-shutdown \\" in profile_text
+    assert "  --capture-range-end stop-shutdown \\" in profile_text
     assert "  --trace-fork-before-exec true \\" in profile_text
     assert "  --cuda-memory-usage true \\" in profile_text
     assert '  -o "$PROFILE_DIR/profile" \\' in profile_text
@@ -191,9 +190,39 @@ def test_render_nsys_nested_options(tmp_path: Path) -> None:
     render_resolved(payload, tmp_path)
 
     profile_text = (tmp_path / "profile.sh").read_text()
-    assert "  --sample none \\" in profile_text
+    assert "  -s none \\" in profile_text
     assert "  -c cudaProfilerApi \\" in profile_text
     assert '  -o "$PROFILE_DIR/nsys_trace" \\' in profile_text
+
+
+def test_render_nsys_known_short_options(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["nsys"] = {
+        "backtrace": "fp",
+        "delay": 5,
+        "duration": 30,
+        "inherit_environment": False,
+        "nvtx_capture": "range@domain",
+        "sample": "none",
+        "show_output": True,
+        "start_later": True,
+        "stop_on_exit": False,
+        "capture_range_end": "stop-shutdown",
+    }
+
+    render_resolved(payload, tmp_path)
+
+    profile_text = (tmp_path / "profile.sh").read_text()
+    assert "  -b fp \\" in profile_text
+    assert "  -y 5 \\" in profile_text
+    assert "  -d 30 \\" in profile_text
+    assert "  -n false \\" in profile_text
+    assert "  -p range@domain \\" in profile_text
+    assert "  -s none \\" in profile_text
+    assert "  -w true \\" in profile_text
+    assert "  -Y true \\" in profile_text
+    assert "  -x false \\" in profile_text
+    assert "  --capture-range-end stop-shutdown \\" in profile_text
 
 
 def test_render_nsys_null_options_are_omitted(tmp_path: Path) -> None:
@@ -211,7 +240,7 @@ def test_render_nsys_null_options_are_omitted(tmp_path: Path) -> None:
     assert "--force-overwrite" not in profile_text
     assert "  -t " not in profile_text
     assert "  -f " not in profile_text
-    assert "  --sample none \\" in profile_text
+    assert "  -s none \\" in profile_text
 
 
 def test_render_nsys_profile_rewrites_nsys_env_paths(tmp_path: Path) -> None:
@@ -225,7 +254,7 @@ def test_render_nsys_profile_rewrites_nsys_env_paths(tmp_path: Path) -> None:
     render_resolved(payload, tmp_path)
 
     profile_text = (tmp_path / "profile.sh").read_text()
-    assert '  NSYS_STATS_PATH="$PROFILE_DIR/stats" \\' in profile_text
+    assert '  -e NSYS_STATS_PATH="$PROFILE_DIR/stats" \\' in profile_text
 
 
 def test_render_multi_case_profile_all(tmp_path: Path) -> None:

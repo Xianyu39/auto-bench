@@ -331,18 +331,10 @@ def _nsys_config(config: Any) -> dict[str, Any] | None:
         return None
     if config.get("enabled", True) is False:
         return None
-    prefix = [*_nsys_env_prefix(config), *_nsys_prefix(config)]
+    prefix = _nsys_prefix(config)
     if not prefix:
         return None
     return {"prefix": prefix}
-
-
-def _nsys_env_prefix(config: dict[str, Any]) -> list[str]:
-    env = config.get("env")
-    if not isinstance(env, dict) or not env:
-        return []
-    assignments = [f"{key}={value}" for key, value in env.items()]
-    return ["env", *assignments]
 
 
 def _nsys_prefix(config: dict[str, Any]) -> list[Any]:
@@ -354,11 +346,22 @@ def _nsys_prefix(config: dict[str, Any]) -> list[Any]:
 
     executable = config.get("executable", "nsys")
     prefix: list[Any] = [executable, "profile"]
+    prefix.extend(_nsys_env_options(config))
     prefix.extend(_nsys_options(config))
     extra_args = config.get("args")
     if isinstance(extra_args, list):
         prefix.extend(extra_args)
     return prefix
+
+
+def _nsys_env_options(config: dict[str, Any]) -> list[str]:
+    env = config.get("env")
+    if not isinstance(env, dict) or not env:
+        return []
+    rendered: list[str] = []
+    for key, value in env.items():
+        rendered.extend(["-e", f"{key}={value}"])
+    return rendered
 
 
 def _nsys_options(config: dict[str, Any]) -> list[str]:
@@ -386,21 +389,31 @@ def _nsys_options(config: dict[str, Any]) -> list[str]:
 
     rendered: list[str] = []
     for name, value in options.items():
-        if value is None or value is False:
+        if value is None:
             continue
         rendered.extend([_nsys_option_name(name), _nsys_value(value)])
     return rendered
 
 
 def _nsys_option_name(name: str) -> str:
-    short_options = {
-        "capture_range": "-c",
-        "capture_range_end": "-e",
-        "force_overwrite": "-f",
-        "output": "-o",
-        "trace": "-t",
-    }
-    return short_options.get(name, f"--{name.replace('_', '-')}")
+    return NSYS_PROFILE_SHORT_OPTIONS.get(name, f"--{name.replace('_', '-')}")
+
+
+NSYS_PROFILE_SHORT_OPTIONS = {
+    "backtrace": "-b",
+    "capture_range": "-c",
+    "delay": "-y",
+    "duration": "-d",
+    "force_overwrite": "-f",
+    "inherit_environment": "-n",
+    "nvtx_capture": "-p",
+    "output": "-o",
+    "sample": "-s",
+    "show_output": "-w",
+    "start_later": "-Y",
+    "stop_on_exit": "-x",
+    "trace": "-t",
+}
 
 
 def _nsys_value(value: Any) -> str:
