@@ -18,6 +18,8 @@ def test_render_single_case_cmd_and_config(tmp_path: Path) -> None:
     assert 'RUN_DIR="${AUTO_BENCH_RUN_DIR:-$SCRIPT_DIR}"' in cmd_text
     assert 'LOG_FILE="$RUN_DIR/run.log"' in cmd_text
     assert ': > "$LOG_FILE"' in cmd_text
+    assert 'if [ "${AUTO_BENCH_QUIET:-}" = "1" ]; then' in cmd_text
+    assert '  exec > "$LOG_FILE" 2>&1' in cmd_text
     assert 'exec > >(tee -a "$LOG_FILE") 2>&1' in cmd_text
     assert "trtllm-bench \\" in cmd_text
     assert "  --model llama \\" in cmd_text
@@ -129,6 +131,8 @@ def test_render_nsys_wraps_benchmark_command(tmp_path: Path) -> None:
     profile_text = profile.read_text()
     assert 'PROFILE_DIR="$SCRIPT_DIR/profile"' in profile_text
     assert 'PROFILE_LOG_FILE="$PROFILE_DIR/profile.log"' in profile_text
+    assert 'if [ "${AUTO_BENCH_QUIET:-}" = "1" ]; then' in profile_text
+    assert '  exec > "$PROFILE_LOG_FILE" 2>&1' in profile_text
     assert "nsys \\" in profile_text
     assert "  profile \\" in profile_text
     assert "  -e CUDA_VISIBLE_DEVICES=0 \\" in profile_text

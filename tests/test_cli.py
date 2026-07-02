@@ -1,5 +1,6 @@
 import subprocess
 import tomllib
+from pathlib import Path
 
 from auto_bench.cli import main
 from auto_bench.resolver import resolve
@@ -15,7 +16,7 @@ def test_cli_version(capsys) -> None:
         main(["--version"])
     except SystemExit as exc:
         assert exc.code == 0
-    assert "auto-bench 0.1.12" in capsys.readouterr().out
+    assert "auto-bench 0.1.13" in capsys.readouterr().out
 
 
 def test_cli_has_ab_entrypoint_alias() -> None:
@@ -131,18 +132,20 @@ trtllm-bench:
 """.lstrip(),
         encoding="utf-8",
     )
-    calls: list[list[str]] = []
+    calls: list[tuple[list[str], dict[str, str]]] = []
 
-    def fake_run(argv, *, check):
-        calls.append(argv)
+    def fake_run(argv, *, check, env):
+        calls.append((argv, env))
         assert check is False
+        assert env["AUTO_BENCH_QUIET"] == "1"
+        (output_dir / "run.log").write_text("ok\n", encoding="utf-8")
         return subprocess.CompletedProcess(argv, 0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    assert main(["run", str(experiment), "-o", str(output_dir)]) == 0
+    assert main(["run", str(experiment), "-o", str(output_dir), "--no-progress"]) == 0
 
-    assert calls == [[str(output_dir / "cmd.sh")]]
+    assert [call[0] for call in calls] == [[str(output_dir / "cmd.sh")]]
     assert (output_dir / "cmd.sh").exists()
 
 
@@ -162,19 +165,139 @@ trtllm-bench:
 """.lstrip(),
         encoding="utf-8",
     )
-    calls: list[list[str]] = []
+    calls: list[tuple[list[str], dict[str, str]]] = []
 
-    def fake_run(argv, *, check):
-        calls.append(argv)
+    def fake_run(argv, *, check, env):
+        calls.append((argv, env))
         assert check is False
+        assert env["AUTO_BENCH_QUIET"] == "1"
+        profile_dir = output_dir / "profile"
+        profile_dir.mkdir()
+        (profile_dir / "profile.log").write_text("failed\n", encoding="utf-8")
         return subprocess.CompletedProcess(argv, 7)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    assert main(["run", str(experiment), "-o", str(output_dir), "--profile"]) == 7
+    assert (
+        main(
+            [
+                "run",
+                str(experiment),
+                "-o",
+                str(output_dir),
+                "--profile",
+                "--no-progress",
+            ]
+        )
+        == 7
+    )
 
-    assert calls == [[str(output_dir / "profile.sh")]]
+    assert [call[0] for call in calls] == [[str(output_dir / "profile.sh")]]
     assert (output_dir / "profile.sh").exists()
+
+
+def test_cli_run_multi_case_writes_total_log_and_stops_on_failure(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    experiment = tmp_path / "experiment.yaml"
+    output_dir = tmp_path / "artifacts"
+    experiment.write_text(
+        """
+metadata:
+  name: run_multi
+vars:
+  batch_size:
+    sweep: [1, 2]
+trtllm-bench:
+  model: llama
+  throughput:
+    dataset: /datasets/static.txt
+    batch_size: ${vars.batch_size}
+""".lstrip(),
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv, *, check, env):
+        calls.append(argv)
+        assert check is False
+        assert env["AUTO_BENCH_QUIET"] == "1"
+        case_dir = Path(argv[0]).parent
+        (case_dir / "run.log").write_text("line one\nline two\n", encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 3)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert (
+        main(["run", str(experiment), "-o", str(output_dir), "--no-progress"])
+        == 3
+    )
+
+    assert len(calls) == 1
+    total_log = (output_dir / "run.log").read_text(encoding="utf-8")
+    assert "===== auto-bench case run_multi__vars.batch_size=1 start" in total_log
+    assert "line one\nline two" in total_log
+    assert "exit=3" in total_log
+    captured = capsys.readouterr()
+    assert "auto-bench: case failed: run_multi__vars.batch_size=1 (exit 3)" in (
+        captured.err
+    )
+    assert "auto-bench: last log lines:" in captured.err
+    assert "line two" in captured.err
+
+
+def test_cli_run_continue_on_error_runs_remaining_cases(
+    tmp_path: Path, monkeypatch
+) -> None:
+    experiment = tmp_path / "experiment.yaml"
+    output_dir = tmp_path / "artifacts"
+    experiment.write_text(
+        """
+metadata:
+  name: run_continue
+vars:
+  batch_size:
+    sweep: [1, 2]
+trtllm-bench:
+  model: llama
+  throughput:
+    dataset: /datasets/static.txt
+    batch_size: ${vars.batch_size}
+""".lstrip(),
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv, *, check, env):
+        calls.append(argv)
+        assert check is False
+        assert env["AUTO_BENCH_QUIET"] == "1"
+        case_dir = Path(argv[0]).parent
+        (case_dir / "run.log").write_text(
+            f"log for {case_dir.name}\n", encoding="utf-8"
+        )
+        return subprocess.CompletedProcess(argv, 5 if len(calls) == 1 else 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert (
+        main(
+            [
+                "run",
+                str(experiment),
+                "-o",
+                str(output_dir),
+                "--continue-on-error",
+                "--no-progress",
+            ]
+        )
+        == 5
+    )
+
+    assert len(calls) == 2
+    total_log = (output_dir / "run.log").read_text(encoding="utf-8")
+    assert "run_continue__vars.batch_size=1" in total_log
+    assert "run_continue__vars.batch_size=2" in total_log
 
 
 def test_cli_resolve_emits_warnings_to_stderr(tmp_path, capsys) -> None:

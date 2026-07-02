@@ -40,7 +40,7 @@ ab --help
 ```
 
 如果需要可复现安装，建议把 `@main` 替换成具体 release tag，例如
-`@v0.1.12`。
+`@v0.1.13`。
 
 ## 快速开始
 
@@ -74,6 +74,9 @@ auto-bench plan my_decode.yaml -o artifacts/my_decode
 ```bash
 auto-bench run my_decode.yaml -o artifacts/my_decode
 ```
+
+`auto-bench run` 默认在终端显示进度和耗时，benchmark 的 stdout/stderr 会写入
+对应的 `run.log`。如果需要朴素事件行而不是进度条，可以加 `--no-progress`。
 
 如果 YAML 配置了顶层 `nsys`，一键渲染并运行 profile：
 
@@ -116,8 +119,9 @@ artifacts/my_decode/
 ./artifacts/my_decode/run_all.sh
 ```
 
-每个 `cmd.sh` 都会把 stdout/stderr 同时输出到终端和同目录下的 `run.log`。
-多 case 的 `run_all.sh` 也会在总输出目录写入一个 `run.log`。
+直接执行生成的 shell 脚本时，每个 `cmd.sh` 都会把 stdout/stderr 同时输出到
+终端和同目录下的 `run.log`。多 case 的 `run_all.sh` 也会在总输出目录写入一个
+`run.log`。
 
 ## YAML 文件结构
 
@@ -606,14 +610,17 @@ cases:
 - `run.log`：执行脚本时产生，不是 render 阶段生成。
 
 `render` 只生成产物，不执行 benchmark；生成的 shell 脚本都会自动设置执行权限。
-需要渲染后立即运行时，可以使用 `auto-bench run`。加 `--profile` 时会运行
-`profile.sh` 或 `profile_all.sh`，否则运行 `cmd.sh` 或 `run_all.sh`。
+需要渲染后立即运行时，可以使用 `auto-bench run`。它会在 Python 侧逐 case
+调度 `cmd.sh` 或 `profile.sh`，默认显示进度条和耗时；benchmark 输出写入 log，
+不会直接刷满终端。加 `--profile` 时运行 profile 脚本；加 `--no-progress` 时
+使用朴素事件行输出。直接执行生成的 `run_all.sh` 或 `profile_all.sh` 仍保持简单
+shell 行为。
 
 每个 `cmd.sh` 做的事情：
 
 1. 设置 `set -euo pipefail`。
 2. 计算 `SCRIPT_DIR`。
-3. 清空并写入当前 case 的 `run.log`。
+3. 清空并写入当前 case 的 `run.log`；直接运行脚本时也同步输出到终端。
 4. 导出 `metadata.env` 中的环境变量。
 5. 按 `metadata.gpu_frequency` 锁 GPU frequency。
 6. 如果使用 managed dataset 且数据集文件不存在，先运行 `prepare-dataset`。

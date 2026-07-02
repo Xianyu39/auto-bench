@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from auto_bench.collector import collect_results, render_results
 from auto_bench.errors import AutobenchError
 from auto_bench.renderer import render_resolved
 from auto_bench.resolver import dump_yaml, resolve_file
+from auto_bench.runner import run_cases
 from auto_bench.templates import TEMPLATES, get_template
 
 
@@ -82,6 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Render controller scripts so failed cases are logged and later "
             "cases still run."
         ),
+    )
+    run_parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Print case events instead of rendering the interactive progress view.",
     )
 
     collect_parser = subparsers.add_parser(
@@ -166,13 +171,14 @@ def main(argv: list[str] | None = None) -> int:
                 args.output_dir,
                 continue_on_error=args.continue_on_error,
             )
-            script = _run_script_path(
+            return run_cases(
+                resolved,
                 args.output_dir,
                 case_dirs,
                 profile=args.profile,
+                continue_on_error=args.continue_on_error,
+                progress=not args.no_progress,
             )
-            completed = subprocess.run([str(script)], check=False)
-            return int(completed.returncode)
         if args.command in {"collect_results", "collect-results"}:
             rows = collect_results(args.artifact_dir, args.framework)
             rendered = render_results(rows, args.format)
@@ -193,20 +199,6 @@ def main(argv: list[str] | None = None) -> int:
     except AutobenchError as exc:
         parser.exit(2, f"auto-bench: error: {exc}\n")
     return 0
-
-
-def _run_script_path(root: Path, case_dirs: list[Path], *, profile: bool) -> Path:
-    if len(case_dirs) == 1:
-        script = case_dirs[0] / ("profile.sh" if profile else "cmd.sh")
-    else:
-        script = root / ("profile_all.sh" if profile else "run_all.sh")
-    if not script.exists():
-        if profile:
-            raise AutobenchError(
-                f"{script}: missing profile script; add top-level nsys config first"
-            )
-        raise AutobenchError(f"{script}: missing run script")
-    return script
 
 
 def _emit_warnings(resolved: dict[str, object]) -> None:
