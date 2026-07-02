@@ -14,10 +14,13 @@ vars:
     sweep: [1, 2, 4, 8, 16, 32]
 
 nsys:
-  env:
+  tool_env:
     NSYS_STATS_PATH: "${runtime.run_dir}/stats"
     CUDA_VISIBLE_DEVICES: 0
     TLLM_PROFILE_START_STOP: 10-20
+  env:
+    TLLM_PROFILE_RECORD_GC: 1
+    TLLM_LLMAPI_ENABLE_NVTX: 1
   output: "${runtime.run_dir}/nsys_trace"      # -o
   force_overwrite: true                       # -f
   trace: [cuda, nvtx]                         # -t cuda,nvtx

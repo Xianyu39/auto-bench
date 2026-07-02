@@ -90,8 +90,10 @@ def prefill_template() -> dict[str, Any]:
             },
         },
         "nsys": {
-            "env": {
+            "tool_env": {
                 "NSYS_STATS_PATH": "${runtime.run_dir}/stats",
+            },
+            "env": {
                 "CUDA_VISIBLE_DEVICES": 0,
                 "TLLM_PROFILE_START_STOP": "10-20",
             },

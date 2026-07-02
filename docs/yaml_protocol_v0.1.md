@@ -53,8 +53,9 @@ vars:
     sweep: [1, 2, 4, 8]
 
 nsys:
-  env:
+  tool_env:
     NSYS_STATS_PATH: "${runtime.run_dir}/stats"
+  env:
     CUDA_VISIBLE_DEVICES: 0
     TLLM_PROFILE_START_STOP: 10-20
   output: "${runtime.run_dir}/nsys_trace"
@@ -157,8 +158,12 @@ nsys profile -f true -t cuda,nvtx -o "$SCRIPT_DIR/nsys_trace"
 The mapping supports:
 
 - `enabled`: optional boolean, defaults to `true`.
-- `env`: optional mapping of environment variables injected into the nsys
-  command as `-e KEY=VALUE` options.
+- `env`: optional mapping of environment variables injected into the profiled
+  application process as one nsys `-e KEY=VALUE,KEY2=VALUE2` /
+  `--env-var KEY=VALUE,KEY2=VALUE2` option.
+- `tool_env`: optional mapping of environment variables injected into the nsys
+  tool process itself by prefixing the generated command with
+  `env KEY=VALUE nsys ...`.
 - `executable`: optional command name, defaults to `nsys`.
 - `output`: optional trace output path, defaults to `$SCRIPT_DIR/nsys_trace`.
 - `trace`: optional value for `--trace`, defaults to `cuda,nvtx`. A list is
@@ -186,8 +191,9 @@ Example:
 
 ```yaml
 nsys:
-  env:
+  tool_env:
     NSYS_STATS_PATH: "${runtime.run_dir}/stats"
+  env:
     CUDA_VISIBLE_DEVICES: 0
     TLLM_PROFILE_START_STOP: 10-20
   output: "${runtime.run_dir}/nsys_trace"

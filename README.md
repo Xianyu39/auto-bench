@@ -145,8 +145,9 @@ vars:
     sweep: [1, 4]
 
 nsys:
-  env:
+  tool_env:
     NSYS_STATS_PATH: "${runtime.run_dir}/stats"
+  env:
     CUDA_VISIBLE_DEVICES: 0
     TLLM_PROFILE_START_STOP: 10-20
   output: "${runtime.run_dir}/nsys_trace"
@@ -243,8 +244,9 @@ nsys profile -f true -t cuda,nvtx -o "$PROFILE_DIR/nsys_trace" \
 
 ```yaml
 nsys:
-  env:
+  tool_env:
     NSYS_STATS_PATH: "${runtime.run_dir}/stats"
+  env:
     CUDA_VISIBLE_DEVICES: 0
     TLLM_PROFILE_START_STOP: 10-20
   output: "${runtime.run_dir}/nsys_trace"      # -o
@@ -259,9 +261,10 @@ nsys:
 benchmark；`profile.sh` 使用 nsys 包裹 `cmd.sh`，并把该次运行的 `run.log`、
 `iter.log` 和其它由 `runtime.run_dir` 生成的输出写到 `profile/` 目录下，避免覆盖
 普通运行。`config.yaml` 和 `datasets/` 这类共享输入仍保留在 case 根目录。
-`env` 会作为只注入给 nsys 命令的环境变量，渲染成 nsys 的 `-e KEY=VALUE`
-参数。`nsys` 下除
-`enabled`、`env`、`output` 等保留字段外，
+`env` 会作为只注入给被 profile 程序的环境变量，渲染成 nsys 的
+`-e KEY=VALUE,KEY2=VALUE2` 参数。`tool_env` 会作为 nsys 工具进程自己的环境变量，
+渲染成 `env KEY=VALUE nsys ...` 前缀。`nsys` 下除
+`enabled`、`env`、`tool_env`、`output` 等保留字段外，
 其它字段会自动渲染成 nsys 参数，例如 `capture_range` 会变成
 `-c`，布尔值会渲染为 `true`/`false`，列表会用逗号连接。
 已知 nsys profile 短参数会按官方 CLI 映射渲染：`backtrace -> -b`、

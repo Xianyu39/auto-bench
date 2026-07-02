@@ -339,10 +339,18 @@ def _nsys_config(config: Any) -> dict[str, Any] | None:
         return None
     if config.get("enabled", True) is False:
         return None
-    prefix = _nsys_prefix(config)
+    prefix = [*_nsys_tool_env_prefix(config), *_nsys_prefix(config)]
     if not prefix:
         return None
     return {"prefix": prefix}
+
+
+def _nsys_tool_env_prefix(config: dict[str, Any]) -> list[str]:
+    env = config.get("tool_env")
+    if not isinstance(env, dict) or not env:
+        return []
+    assignments = [f"{key}={value}" for key, value in env.items()]
+    return ["env", *assignments]
 
 
 def _nsys_prefix(config: dict[str, Any]) -> list[Any]:
@@ -366,10 +374,8 @@ def _nsys_env_options(config: dict[str, Any]) -> list[str]:
     env = config.get("env")
     if not isinstance(env, dict) or not env:
         return []
-    rendered: list[str] = []
-    for key, value in env.items():
-        rendered.extend(["-e", f"{key}={value}"])
-    return rendered
+    assignments = [f"{key}={value}" for key, value in env.items()]
+    return ["-e", ",".join(assignments)]
 
 
 def _nsys_options(config: dict[str, Any]) -> list[str]:
@@ -380,6 +386,7 @@ def _nsys_options(config: dict[str, Any]) -> list[str]:
         "env",
         "executable",
         "options",
+        "tool_env",
     }
     options: dict[str, Any] = {}
     if "force_overwrite" not in config:
@@ -441,6 +448,8 @@ def _variant_argv(argv: list[Any], variant_dir: str) -> list[str]:
 
 
 def _variant_path(value: str, variant_dir: str) -> str:
+    if "," in value and any("=$SCRIPT_DIR/" in item for item in value.split(",")):
+        return ",".join(_variant_path(item, variant_dir) for item in value.split(","))
     if "=$SCRIPT_DIR/" in value:
         name, path = value.split("=", 1)
         return f"{name}={_variant_path(path, variant_dir)}"
@@ -512,15 +521,27 @@ def _quote_args(argv: list[Any]) -> list[str]:
     parts: list[str] = []
     for arg in argv:
         text = str(arg)
+        env_assignment_list = _env_assignment_list(text)
         env_assignment = _env_assignment_path(text)
-        if env_assignment is not None:
+        if env_assignment_list is not None:
+            parts.append(
+                ",".join(
+                    _quote_env_assignment(name, value)
+                    for name, value in env_assignment_list
+                )
+            )
+        elif env_assignment is not None:
             name, value = env_assignment
-            parts.append(f"{name}={_sh(value)}")
+            parts.append(_quote_env_assignment(name, value))
         elif _is_script_dir_path(text):
             parts.append(f'"{text}"')
         else:
             parts.append(_sh(text))
     return parts
+
+
+def _quote_env_assignment(name: str, value: str) -> str:
+    return f"{name}={_sh(value)}"
 
 
 def _sh(value: str) -> str:
@@ -544,3 +565,17 @@ def _env_assignment_path(value: str) -> tuple[str, str] | None:
     if not name or not _is_script_dir_path(path):
         return None
     return name, path
+
+
+def _env_assignment_list(value: str) -> list[tuple[str, str]] | None:
+    if "," not in value:
+        return None
+    assignments: list[tuple[str, str]] = []
+    for item in value.split(","):
+        if "=" not in item:
+            return None
+        name, assignment_value = item.split("=", 1)
+        if not name:
+            return None
+        assignments.append((name, assignment_value))
+    return assignments

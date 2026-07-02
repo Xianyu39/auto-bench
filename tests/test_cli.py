@@ -50,7 +50,7 @@ def test_prefill_template_resolves() -> None:
     assert case["trtllm-bench"]["throughput"]["backend"] == "pytorch"
     assert case["trtllm-bench"]["throughput"]["max_num_tokens"] == 1025
     assert case["trtllm-bench"]["throughput"]["iteration_log"] == "$SCRIPT_DIR/iter.log"
-    assert case["nsys"]["env"]["NSYS_STATS_PATH"] == "$SCRIPT_DIR/stats"
+    assert case["nsys"]["tool_env"]["NSYS_STATS_PATH"] == "$SCRIPT_DIR/stats"
     assert case["nsys"]["env"]["CUDA_VISIBLE_DEVICES"] == 0
     assert case["nsys"]["env"]["TLLM_PROFILE_START_STOP"] == "10-20"
     assert case["nsys"]["cuda-graph-trace"] == "node"

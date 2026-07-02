@@ -111,6 +111,9 @@ def test_render_nsys_wraps_benchmark_command(tmp_path: Path) -> None:
             "CUDA_VISIBLE_DEVICES": 0,
             "NSYS_OUTPUT_DIR": "$SCRIPT_DIR/nsys_env",
         },
+        "tool_env": {
+            "NSYS_CONFIG_DIR": "$SCRIPT_DIR/nsys_config",
+        },
         "trace": ["cuda", "nvtx", "osrt"],
         "sample": "none",
         "capture_range": "cudaProfilerApi",
@@ -133,10 +136,14 @@ def test_render_nsys_wraps_benchmark_command(tmp_path: Path) -> None:
     assert 'PROFILE_LOG_FILE="$PROFILE_DIR/profile.log"' in profile_text
     assert 'if [ "${AUTO_BENCH_QUIET:-}" = "1" ]; then' in profile_text
     assert '  exec > "$PROFILE_LOG_FILE" 2>&1' in profile_text
+    assert "env \\" in profile_text
+    assert '  NSYS_CONFIG_DIR="$PROFILE_DIR/nsys_config" \\' in profile_text
     assert "nsys \\" in profile_text
     assert "  profile \\" in profile_text
-    assert "  -e CUDA_VISIBLE_DEVICES=0 \\" in profile_text
-    assert '  -e NSYS_OUTPUT_DIR="$PROFILE_DIR/nsys_env" \\' in profile_text
+    assert (
+        '  -e CUDA_VISIBLE_DEVICES=0,NSYS_OUTPUT_DIR="$PROFILE_DIR/nsys_env" \\'
+        in profile_text
+    )
     assert "  -f true \\" in profile_text
     assert "  -t cuda,nvtx,osrt \\" in profile_text
     assert "  -s none \\" in profile_text
@@ -199,6 +206,25 @@ def test_render_nsys_nested_options(tmp_path: Path) -> None:
     assert '  -o "$PROFILE_DIR/nsys_trace" \\' in profile_text
 
 
+def test_render_nsys_tool_env_wraps_command_prefix(tmp_path: Path) -> None:
+    payload = _resolved_payload()
+    payload["cases"][0]["nsys"] = {
+        "tool_env": {
+            "NSYS_CONFIG_DIR": "$SCRIPT_DIR/nsys_config",
+        },
+        "command_prefix": ["nsys", "profile", "--sample", "none"],
+    }
+
+    render_resolved(payload, tmp_path)
+
+    profile_text = (tmp_path / "profile.sh").read_text()
+    assert "env \\" in profile_text
+    assert '  NSYS_CONFIG_DIR="$PROFILE_DIR/nsys_config" \\' in profile_text
+    assert "  nsys \\" in profile_text
+    assert "  profile \\" in profile_text
+    assert "  --sample none \\" in profile_text
+
+
 def test_render_nsys_known_short_options(tmp_path: Path) -> None:
     payload = _resolved_payload()
     payload["cases"][0]["nsys"] = {
@@ -251,6 +277,7 @@ def test_render_nsys_profile_rewrites_nsys_env_paths(tmp_path: Path) -> None:
     payload = _resolved_payload()
     payload["cases"][0]["nsys"] = {
         "env": {
+            "CUDA_VISIBLE_DEVICES": 0,
             "NSYS_STATS_PATH": "$SCRIPT_DIR/stats",
         },
     }
@@ -258,7 +285,10 @@ def test_render_nsys_profile_rewrites_nsys_env_paths(tmp_path: Path) -> None:
     render_resolved(payload, tmp_path)
 
     profile_text = (tmp_path / "profile.sh").read_text()
-    assert '  -e NSYS_STATS_PATH="$PROFILE_DIR/stats" \\' in profile_text
+    assert (
+        '  -e CUDA_VISIBLE_DEVICES=0,NSYS_STATS_PATH="$PROFILE_DIR/stats" \\'
+        in profile_text
+    )
 
 
 def test_render_multi_case_profile_all(tmp_path: Path) -> None:
